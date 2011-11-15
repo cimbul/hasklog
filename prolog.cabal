@@ -42,7 +42,7 @@ includes:
 install-includes:
 include-dirs:
 hs-source-dirs: src
-other-modules:
+other-modules: Prolog.Interpreter Prolog.Data
 ghc-prof-options:
 ghc-shared-options:
 ghc-options:
