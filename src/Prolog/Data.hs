@@ -16,6 +16,7 @@ module Prolog.Data (
   Identifier,
   Term(..),
   HornClause(..),
+  Program,
 ) where
 
 type Identifier = String
@@ -29,3 +30,5 @@ data Term = Atom Identifier
 data HornClause = DefiniteClause Term [Term]
                 | GoalClause [Term]
                 deriving (Eq, Show)
+
+type Program = [HornClause]

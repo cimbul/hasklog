@@ -19,9 +19,33 @@ module Prolog.Interpreter (
 
 import Prolog.Data
 
-import Control.Monad (zipWithM, foldM)
-import Control.Applicative ((<$>))
+import Control.Monad (foldM)
 import qualified Data.Map as M
+
+
+type Unifier = M.Map Identifier Term
+
+
+-- | Resolve the goal clause using the clauses in program. Return a list of all
+--   possible unifiers.
+resolve :: Program -> HornClause -> [Unifier]
+
+resolve prog (GoalClause goals) = resolve' prog goals M.empty
+
+  where
+
+    resolve' prog []      unifier = return unifier
+    resolve' prog g:goals unifier =
+      do (body, unifier') <- mapMaybe (unifyClauses g) prog
+         let goals' = map (substituteAll unifier') (body ++ goals)
+         resolve' prog goals' (union unifier unifier')
+
+    unifyClauses goal (DefiniteClause head body) =
+      do unifier' <- unify goal head
+         return (body, unifier)
+
+-- Cannot resolve with a definite clause
+resolve prog _ = undefined
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.
@@ -33,9 +57,6 @@ occurs (Variable var) (CompoundTerm _ args) = any (occurs (Variable var)) args
 occurs (Variable var) _                     = False
 occurs _              _                     = undefined
 
-
-
-type Unifier = M.Map Identifier Term
 
 -- | Attempt to unify the two terms. If unification fails, return Nothing.
 --   Otherwise, return the most general unifier, a list of unique variable
