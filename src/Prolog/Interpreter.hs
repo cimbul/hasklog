@@ -14,12 +14,15 @@
 
 module Prolog.Interpreter (
   unify,
+  resolve,
 ) where
 
 
 import Prolog.Data
 
 import Control.Monad (foldM)
+import Control.Applicative ((<$>))
+import Data.Maybe (mapMaybe)
 import qualified Data.Map as M
 
 
@@ -34,14 +37,14 @@ resolve prog (GoalClause goals) = resolve' prog goals M.empty
 
   where
 
-    resolve' prog []      unifier = return unifier
-    resolve' prog g:goals unifier =
+    resolve' prog []        unifier = return unifier
+    resolve' prog (g:goals) unifier =
       do (body, unifier') <- mapMaybe (unifyClauses g) prog
          let goals' = map (substituteAll unifier') (body ++ goals)
-         resolve' prog goals' (union unifier unifier')
+         resolve' prog goals' (M.union unifier unifier')
 
     unifyClauses goal (DefiniteClause head body) =
-      do unifier' <- unify goal head
+      do unifier <- unify goal head
          return (body, unifier)
 
 -- Cannot resolve with a definite clause
@@ -111,7 +114,7 @@ substituteAll unification v@(Variable var) =
 substituteAll unification (CompoundTerm f ts) =
   CompoundTerm f (map (substituteAll unification) ts)
 
-substutiteAll unification t = t
+substituteAll unification t = t
 
 
 -- | Substitute each occurance of the first term (a variable) by the second term

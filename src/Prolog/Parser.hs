@@ -15,17 +15,19 @@
 module Prolog.Parser (
   parseProgram,
   parseQuery,
+  parseClause,
 ) where
 
 
 import Prolog.Data
 
-import Control.Applicative ((<$>), (<*>), (<*))
+import Control.Applicative ((<$>), (<*>), (<*), (*>))
 import Text.ParserCombinators.Parsec
 
 
 parseProgram = parse program
-parseQuery   = parse query
+parseQuery   = parse query   "(user input)"
+parseClause  = parse clause  "(user input)"
 
 
 -- Program/Query parsers
@@ -34,14 +36,14 @@ query = GoalClause <$> (goal <* eof)
   where
     goal = reservedSym "?-" *> conjunction <* reservedSym "."
 
-program = Program <$> (clauses <* eof)
+program = clauses <* eof
 
 clauses = clause `endBy` reservedSym "."
 
-clause = DefiniteClause <$> clauseHead <*> option [] clauseBody
+clause = DefiniteClause <$> clauseHead <*> clauseBody
   where
     clauseHead = term
-    clauseBody = reservedSym ":-" *> many1 term <?> "body of clause"
+    clauseBody = option [] (reservedSym ":-" *> many1 term)
 
 conjunction = term `sepBy` reservedSym ","
 
@@ -51,24 +53,31 @@ conjunction = term `sepBy` reservedSym ","
 term = number
    <|> variable
    <|> list
-   <|> compoundTerm
-   <|> atom
+   <|> atomOrCompound
    <?> "term"
 
 number = Number <$> natural
   where
-    natural = toInteger <$> many1 digit
+    natural = (read :: String -> Integer) <$> many1 digit
 
 variable = Variable <$> variableIdentifier
   where
     variableIdentifier = (:) <$> upper <*> many wordChar
+
+atomOrCompound = compoundTerm >>= translate
+  where
+    -- Translate compound terms with 0 arity into atoms
+    translate compound =
+      case compound of
+        CompoundTerm f [] -> return (Atom f)
+        _                 -> return compound
 
 atom = Atom <$> identifier
 
 compoundTerm = CompoundTerm <$> functor <*> subterms
   where
     functor  = identifier
-    subterms = parens conjunction
+    subterms = option [] (parens conjunction)
 
 -- Lists are translated on-the-fly into their full term representation
 list = emptyList
@@ -87,7 +96,7 @@ listContents = makeListTerm <$> term <*> rest
 
     nextItem  = reservedSym "," *> listContents <?> "list item"
     tailItem  = reservedSym "|" *> term         <?> "tail item"
-    endOfList = return Atom "[]"
+    endOfList = return (Atom "[]")
 
     makeListTerm h t = CompoundTerm "." [h, t]
 
@@ -97,11 +106,11 @@ listContents = makeListTerm <$> term <*> rest
 reservedWord s = lexeme $ try (string s) <* notFollowedBy wordChar
 reservedSym  s = lexeme $ try (string s) <* notFollowedBy symChar
 
-identifier = lexeme . unreserved $
+identifier = lexeme (unreserved (
       quotedIdentifier
   <|> unquotedIdentifier
   <|> symbolicIdentifier
-  <?> "identifier"
+  <?> "identifier"))
 
 quotedIdentifier = quotes "'" (many quotedChar)
 
@@ -110,26 +119,27 @@ unquotedIdentifier = (:) <$> lower <*> many wordChar
 symbolicIdentifier = many1 symChar
 
 
-unreserved p =
-  do rslt <- p
+unreserved p = p >>= checkReserved
+  where
+    checkReserved rslt =
      if rslt `elem` reserved
-       then unexpected "reserved word or symbol"
+       then unexpected ("reserved word or symbol \"" ++ rslt ++ "\"")
        else return rslt
 
 
 -- Lexical parsers
 
-parens   = lexeme $ between (reservedSym "(") (reservedSym ")")
-brackets = lexeme $ between (reservedSym "[") (reservedSym "]")
-quotes q = lexeme $ between (reservedSym q)   (reservedSym q)
+parens   p = lexeme (between (reservedSym "(") (reservedSym ")") p)
+brackets p = lexeme (between (reservedSym "[") (reservedSym "]") p)
+quotes q p = lexeme (between (reservedSym q)   (reservedSym q)   p)
 
 lexeme p = p <* whiteSpace
 
 whiteSpace = skipMany space
 
 quotedChar   = noneOf "'"
-wordChar     = alphaNum
-symChar      = oneOf "~`!@#$%^&*-_=+\\;:/?."
+wordChar     = alphaNum <|> char '_'
+symChar      = oneOf "+-*/<>=:.&_~"
 
 
 -- Miscellaneous
