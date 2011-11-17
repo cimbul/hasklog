@@ -13,37 +13,41 @@
 -----------------------------------------------------------------------------
 
 module Prolog.Parser (
-  parseProgram,
-  parseQuery,
-  parseClause,
-) where
+  parse,   -- reexport from Parsec
+  parseFully,
 
+  program,
+  query,
+  clause,
+
+  concreteSyntax,
+  quoteAtom,
+) where
 
 import Prolog.Data
 
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
 import Text.ParserCombinators.Parsec
+import Data.List (intersperse)
 
 
-parseProgram = parse program
-parseQuery   = parse query   "(user input)"
-parseClause  = parse clause  "(user input)"
+parseFully p = parse (p <* eof)
 
 
 -- Program/Query parsers
 
-query = GoalClause <$> (goal <* eof)
+query = GoalClause <$> goal
   where
-    goal = reservedSym "?-" *> conjunction <* reservedSym "."
+    goal = conjunction <* (reservedSym ".")
 
-program = clauses <* eof
+program = clauses
 
 clauses = clause `endBy` reservedSym "."
 
 clause = DefiniteClause <$> clauseHead <*> clauseBody
   where
     clauseHead = term
-    clauseBody = option [] (reservedSym ":-" *> many1 term)
+    clauseBody = option [] (reservedSym ":-" *> conjunction)
 
 conjunction = term `sepBy` reservedSym ","
 
@@ -129,13 +133,13 @@ unreserved p = p >>= checkReserved
 
 -- Lexical parsers
 
-parens   p = lexeme (between (reservedSym "(") (reservedSym ")") p)
-brackets p = lexeme (between (reservedSym "[") (reservedSym "]") p)
-quotes q p = lexeme (between (reservedSym q)   (reservedSym q)   p)
+parens   p = lexeme (between (symbol "(") (symbol ")") p)
+brackets p = lexeme (between (symbol "[") (symbol "]") p)
+quotes q p = lexeme (between (symbol q)   (symbol q)   p)
 
-lexeme p = p <* whiteSpace
+symbol s = lexeme (string s)
 
-whiteSpace = skipMany space
+lexeme p = p <* spaces
 
 quotedChar   = noneOf "'"
 wordChar     = alphaNum <|> char '_'
@@ -145,3 +149,21 @@ symChar      = oneOf "+-*/<>=:.&_~"
 -- Miscellaneous
 
 reserved = [":-", ",", "|"]
+
+
+-- | Convert an AST term to concrete syntax.
+concreteSyntax (Atom a)     = quoteAtom a
+concreteSyntax (Number n)   = show n
+concreteSyntax (Variable v) = v
+concreteSyntax (CompoundTerm f ts) =
+    quoteAtom f ++ "(" ++ subterms ++ ")"
+  where
+    subterms = concat (intersperse "," (map concreteSyntax ts))
+
+
+quoteAtom a =
+  case parse unquotedIdentifier "" a of
+    Left _  -> quote a
+    Right _ -> a
+  where
+    quote a = "'" ++ a ++ "'"
