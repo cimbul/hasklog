@@ -27,8 +27,12 @@ module Prolog.Parser (
 import Prolog.Data
 
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
+import Control.Monad (guard)
+import Control.Monad.Reader
 import Text.ParserCombinators.Parsec
+
 import Data.List (intersperse)
+import qualified Data.Map as M
 
 
 parseFully p = parse (p <* eof)
@@ -167,3 +171,72 @@ quoteAtom a =
     Right _ -> a
   where
     quote a = "'" ++ a ++ "'"
+
+
+-- Operators
+
+data OpFixity = Infix | Postfix | Prefix
+              deriving (Eq, Ord, Show)
+
+data OpAssociativity = NonA | LeftA | RightA
+                     deriving (Eq, Ord, Show)
+
+data OpDefinition = OpDefinition Int OpFixity OpAssociativity
+                  deriving (Eq, Ord, Show)
+
+type OpTable = M.Map Identifier [OpDefinition]
+
+
+getOpDef opTable ident = maybe defaultOpDef id $ M.lookup ident opTable
+
+defaultOpDef = OpDefinition defaultBinding Infix NonA
+defaultBinding = 1500
+
+lbp (Atom a) opTable = lbp' (getOpDef opTable a)
+lbp _        opTable = defaultBinding
+
+rbp (Atom a) opTable = rbp' (getOpDef opTable a)
+rbp _        opTable = defaultBinding
+
+-- | Leftward binding precedence
+lbp' (OpDefinition bp _ LeftA) = bp
+lbp' (OpDefinition bp _ _    ) = bp - 1 -- FIXME: Does this work?
+
+-- | Rightward binding precedence
+rbp' (OpDefinition bp _ RightA) = bp - 1
+rbp' (OpDefinition bp _ _     ) = bp
+
+
+
+data Tree a = Node a (Tree a) (Tree a)
+            | Empty
+
+type Token = Term
+
+-- TODO: Error checking?
+opTreeToTerm :: Tree Term -> Term
+opTreeToTerm Empty        = undefined
+opTreeToTerm (Node (Atom a) l r) =
+  case (l, r) of
+    (Node _ _ _, Node _ _ _) -> CompoundTerm a [(opTreeToTerm l), (opTreeToTerm r)]
+    (Node _ _ _, Empty)      -> CompoundTerm a [(opTreeToTerm l)]
+    (Empty     , Node _ _ _) -> CompoundTerm a [(opTreeToTerm r)]
+    (Empty     , Empty)      -> Atom a
+opTreeToTerm (Node t l r) = t
+
+opTree = opTree' 0 Empty
+  where
+    opTree' minbp currentTree = treeWithNextTerm minbp currentTree
+                            <|> return currentTree
+
+    treeWithNextTerm minbp leftTree =
+      do next <- try $ termWithAtLeast minbp
+         termRbp <- rbp next <$> getState
+         rightTree <- opTree' termRbp Empty
+         opTree' minbp (Node next leftTree rightTree)
+
+    termWithAtLeast minbp =
+      do tok <- term
+         termLbp <- lbp tok <$> getState
+         guard $ minbp < termLbp
+         return tok
