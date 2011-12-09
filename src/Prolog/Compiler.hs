@@ -3,6 +3,50 @@ module Compiler (
 ) where
 
 
+data HornClause = DefiniteClause Term [Term]
+                | GoalClause [Term]
+
+type Predicate = [HornClause]
+
+
+compilePredicate :: Predicate -> [WAM]
+compilePredicate [singleton] = compileClause singleton
+compilePredicate (first:rest) =
+     (TryMeElse (Label 1)) : compileClause first
+  ++ compileRest 1 rest
+
+compileRest n [last]      = (TrustMe) : compileClause last
+compileRest n (next:rest) =
+     (RetryMeElse (Label n)) : compileClause next
+  ++ compileRest (n + 1) rest
+
+compileClause (DefiniteClause head body) =
+     (Allocate) : compileArgs head
+  ++ map compileCall body
+  ++ [(Deallocate)]
+
+compileArgs (CompoundTerm _ args) = map compileArg args
+
+compileArgs (Variable v)
+  | encountered v = GetValue    v
+  | otherwise     = GetVariable v
+
+
+type VariableMap = Map Identifier Int
+
+numericizeVariables :: Term -> NamelessTerm
+numericizeVariables = evalState numericizeVariables' M.empty
+
+numericizeVariables' :: Term -> State VariableMap NamelessTerm
+numericizeVariables' (Variable v)
+  do map <- get
+     case lookup v of
+       Just index -> return (NamelessVariable index)
+       Nothing    ->
+         do let nextIndex = M.length map
+            modify (M.insert nextIndex v)
+            return (NamelessVariable nextIndex)
+
 
 -- WAM Instructions
   
