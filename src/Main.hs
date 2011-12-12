@@ -16,6 +16,7 @@ module Main (
   main,
 ) where
 
+import Prolog.Compiler
 import Prolog.Parser
 import Prolog.Interpreter (resolve, unify)
 
