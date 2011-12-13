@@ -31,6 +31,8 @@ module Prolog.Data (
   rbp,
   findOperator,
 
+  InterpreterT,
+  Interpreter,
   InterpreterState,
   listing,
   opTable,
@@ -78,6 +80,9 @@ type Listing = Seq HornClause
 
 
 -- Interpreter/parser state
+
+type InterpreterT m = StateT InterpreterState m
+type Interpreter    = StateT InterpreterState IO
 
 data InterpreterState = InterpreterState {
                           opTable :: OpTable,

@@ -13,8 +13,11 @@
 -----------------------------------------------------------------------------
 
 module Prolog.Interpreter (
+  interpret,
+
   unify,
   resolve,
+  program,
 ) where
 
 
@@ -37,28 +40,30 @@ import Text.Parsec hiding (State)
 type Unifier = Map Identifier Term
 
 
-type Predicate = [Term] -> State InterpreterState [([Term], Unifier)]
+type Predicate m = [Term] -> InterpreterT m [([Term], Unifier)]
 
+interpret p = evalStateT p initialState
 
 -- | Look up the builtin predicate for a term. Returns @Nothing@ if one does not
 --   exist.
-builtin :: Term -> Maybe Predicate
+builtin :: (MonadIO m, Functor m) => Term -> Maybe (Predicate m)
 builtin t = M.lookup (functor t, arity t) builtins
 
 -- | A map from a functor\/arity pair to a function that computes a builtin
 --   operation
-builtins :: Map (Identifier, Int) Predicate
+builtins :: (MonadIO m, Functor m) => Map (Identifier, Int) (Predicate m)
 builtins = M.fromList [
-    (("fail", 0), bfail),
-    (("true", 0), btrue),
-    (("not",  1), bnot),
-    (("op",   2), boperator)
+    (("fail",    0), bfail),
+    (("true",    0), btrue),
+    (("not",     1), bnot),
+    (("consult", 1), bconsult),
+    (("op",      2), boperator)
   ]
 
 
 -- | "Negation as a failure." Try to resolve the argument as a goal in the
 --   program. Fail if any solutions are found; otherwise succeed.
-bnot :: Predicate
+bnot :: (MonadIO m, Functor m) => Predicate m
 bnot [goal] =
   do unifiers <- resolve (GoalClause [goal])
      case unifiers of
@@ -66,18 +71,18 @@ bnot [goal] =
        []   -> btrue []
 
 -- | Cause unfication to fail immediately.
-bfail :: Predicate
+bfail :: (MonadIO m) => Predicate m
 bfail [] = return []
 
 -- | Succeed without unifying anything or trigerring any further goals.
 --   Strictly speaking, this doesn't have to be a builtin (it could just be
 --   predefined as a fact), but having it as a function helps to write some
 --   other builtins (ones that normally succeed, for instance.)
-btrue :: Predicate
+btrue :: (MonadIO m) => Predicate m
 btrue [] = return [([], M.empty)]
 
 -- | Add a user-defined operator to the parser's operator table.
-boperator :: Predicate
+boperator :: (MonadIO m, Functor m) => Predicate m
 boperator [Number prec, Atom opType, Atom name] =
   do updateOpTable $ insertOperator name (opDef opType prec)
      btrue []
@@ -96,19 +101,24 @@ boperator [Number prec, Atom opType, Atom name] =
     opDef "yf"  = OpDefinition Postfix LeftA
     opDef _     = undefined
 
+bconsult :: (MonadIO m, Functor m) => Predicate m
+bconsult [Atom filename] =
+  do contents <- liftIO $ readFile filename
+     result <- consult program filename contents
+     case result of
+       Left _  -> bfail []  -- TODO: Report error
+       Right _ -> btrue []
+
 
 -- Expander
 
---consult :: String -> State Listing Listing
---consult source =
-
-program :: PrologParser [HornClause]
+program :: (MonadIO m, Functor m) => PrologParser m [HornClause]
 program = catMaybes <$> many rule
 
-rule :: PrologParser (Maybe HornClause)
+rule :: (MonadIO m, Functor m) => PrologParser m (Maybe HornClause)
 rule =
-  do t <- term
-     case clause t of
+  do c <- clause
+     case c of
        -- Execute goal clauses and return the rest of the program
        g@(GoalClause _) ->
          do prog <- gets listing
@@ -120,23 +130,16 @@ rule =
          do appendListing rule
             return (Just rule)
 
-clause (CompoundTerm ":-" [head, body]) = DefiniteClause head (conjunction body)
-clause (CompoundTerm ":-" [body])       = GoalClause (conjunction body)
-clause (CompoundTerm "?-" [body])       = GoalClause (conjunction body)
-clause fact                             = DefiniteClause fact []
-
-conjunction (CompoundTerm "," [t1, t2]) = t1 : conjunction t2
-conjunction t                           = [t]
 
 
 -- | Resolve the goal clause using the clauses in program. Return a list of all
 --   possible unifiers.
-resolve :: HornClause -> State InterpreterState [Unifier]
+resolve :: (MonadIO m, Functor m) => HornClause -> InterpreterT m [Unifier]
 resolve (GoalClause goals) = runListT $ resolve' goals M.empty
 
   where
 
-    resolve' :: [Term] -> Unifier -> ListT (State InterpreterState) Unifier
+    resolve' :: (MonadIO m, Functor m) => [Term] -> Unifier -> ListT (InterpreterT m) Unifier
     resolve' []        unifier = return unifier
     resolve' (g:goals) unifier =
       do (body, unifier') <- ListT $ predicate g
@@ -150,7 +153,7 @@ unifyClauses goal (DefiniteClause head body) =
   do unifier <- unify goal head
      return (body, unifier)
 
-predicate :: Term -> State InterpreterState [([Term], Unifier)]
+predicate :: (MonadIO m, Functor m) => Term -> InterpreterT m [([Term], Unifier)]
 predicate pred =
   case builtin pred of
     Just f  -> f (subterms pred)

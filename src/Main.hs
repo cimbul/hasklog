@@ -17,13 +17,15 @@ module Main (
 ) where
 
 import Prolog.Compiler
+import Prolog.Data
 import Prolog.Parser
-import Prolog.Interpreter (resolve, unify)
+import Prolog.Interpreter
 
 import Data.List (intersperse)
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Applicative ((<$>))
-import Text.ParserCombinators.Parsec (ParseError)
+import Text.ParserCombinators.Parsec (ParseError, SourceName)
 import qualified Data.Map as M
 import System.Environment
 import System.Exit
@@ -31,40 +33,47 @@ import System.IO
 
 
 main =
-  do -- Check usage
-     args <- getArgs
-     when (length args /= 1) usage
-
-     -- Consult source file given as first argument
-     let sourceName = args !! 0
-     source <- readFile sourceName
-     let prog = tryParse program sourceName source
-
-     -- Start REPL
-     forever (prompt prog)
+  do args <- getArgs
+     interpret $ interpreterSession args
 
 -- | Print a usage message and exit.
 usage =
   do name <- getProgName
-     let msg = "Usage: " ++ name ++ " INPUT"
+     let msg = "Usage: " ++ name ++ " [INPUT...]"
      putStrLn msg
      exitFailure
 
+
 -- | Run a parser and either return its result (if successful) or report the
 --   parse error to the user.
-tryParse p src input = check $ parseFully p src input
-  where
-    check = either (error . show) id
+tryParse :: (Monad m, Functor m) => PrologParser m a -> SourceName -> String -> m a
+tryParse p src input = check <$> parse p src input
+
+check :: Either ParseError a -> a
+check = either (error . show) id
+
+
+readAndConsult :: String -> InterpreterT IO [HornClause]
+readAndConsult file =
+  do source <- liftIO $ readFile file
+     rslt <- consult program file source
+     return $ check rslt
+
+interpreterSession :: [String] -> InterpreterT IO ()
+interpreterSession files =
+  do mapM readAndConsult files
+     forever prompt
 
 
 -- | Prompt the user for a query and run it, reporting results as long as the
 --   user requests them (or until they are exhausted).
-prompt prog =
-  do putStr "?- "
-     hFlush stdout
-     input <- getLine
-     let q = tryParse query "(user input)" input
-     showResults (resolve prog q)
+prompt =
+  do liftIO $ putStr "?- "
+     liftIO $ hFlush stdout
+     input <- liftIO $ getLine
+     query <- check <$> consult clause "(user input)" ("?- " ++ input)
+     resolution <- resolve query
+     liftIO $ showResults resolution
 
    where
 
@@ -82,4 +91,4 @@ prompt prog =
 
      formatUnifier u = concat (intersperse "\n" (map formatBinding (M.toList u)))
        where
-         formatBinding (var,val) = var ++ " = " ++ concreteSyntax val
+         formatBinding (var,val) = var ++ " = " ++ concrete val

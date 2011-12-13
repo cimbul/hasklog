@@ -13,9 +13,12 @@
 -----------------------------------------------------------------------------
 
 module Prolog.Parser (
-  program,
+  sentence,
+  clause,
   term,
-  parseFully,
+
+  consult,
+  parse,
 
   Syntax,
   concrete,
@@ -27,7 +30,7 @@ module Prolog.Parser (
 
 import Prolog.Data
 
-import Text.Parsec hiding (Empty, State)
+import Text.Parsec hiding (Empty, State, parse)
 import Control.Monad (guard, when)
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
@@ -39,25 +42,38 @@ import Data.Sequence (Seq, (|>))
 import qualified Data.Sequence as S
 
 
-type PrologParser a = ParsecT String () (State InterpreterState) a
+type PrologParser m = ParsecT String () (InterpreterT m)
 
 
-parseFully :: PrologParser a -> SourceName -> String -> Either ParseError a
-parseFully p n s = evalState (runParserT (p <* eof) () n s) initialState
+consult :: (Monad m) => PrologParser m a -> SourceName -> String -> InterpreterT m (Either ParseError a)
+consult p = runParserT (p <* eof) ()
 
+parse :: (Monad m) => PrologParser m a -> SourceName -> String -> m (Either ParseError a)
+parse p n s = evalStateT (runParserT (p <* eof) () n s) initialState
 
-program :: PrologParser [Term]
-program = many sentence
-
-sentence :: PrologParser Term
+sentence :: Monad m => PrologParser m Term
 sentence = term <* fullStop
+
+
+clause :: Monad m => PrologParser m HornClause
+clause = toClause <$> sentence
+
+toClause (CompoundTerm ":-" [head, body]) = DefiniteClause head (toConjunction body)
+toClause (CompoundTerm ":-" [body])       = GoalClause (toConjunction body)
+toClause (CompoundTerm "?-" [body])       = GoalClause (toConjunction body)
+toClause fact                             = DefiniteClause fact []
+
+-- | Convert any (possibly nested) conjunction terms into a list of terms.
+toConjunction (CompoundTerm "," [t1, t2]) = t1 : toConjunction t2
+toConjunction t                           = [t]
 
 
 -- Term parsers
 
-term :: PrologParser Term
+term :: Monad m => PrologParser m Term
 term = operation <* notFollowedBy primitiveTerm
 
+primitiveTerm :: Monad m => PrologParser m Term
 primitiveTerm = parens term
             <|> variable
             <|> number
@@ -65,16 +81,20 @@ primitiveTerm = parens term
             <|> compoundOrAtom
             <?> "term"
 
+compoundOrAtom :: Monad m => PrologParser m Term
 compoundOrAtom = simplify <$> compound
   where
     simplify (CompoundTerm a []) = Atom a
     simplify t                   = t
 
+compound :: Monad m => PrologParser m Term
 compound = CompoundTerm <$> functor <*> subterms
   where
+    functor :: Monad m => PrologParser m String
     functor  = rawAtom
     subterms = option [] (parens (term `sepBy` symbol ","))
 
+list :: Monad m => PrologParser m Term
 list = emptyList
    <|> brackets listContents
 
@@ -97,38 +117,43 @@ list = emptyList
 
 -- Token parsers
 
-fullStop :: PrologParser String
+fullStop :: Monad m => PrologParser m String
 fullStop = lexeme (string "." <* (layout <|> eof))
 
+number :: Monad m => PrologParser m Term
 number = Number <$> natural
   where natural = read <$> many1 digit
 
+variable :: Monad m => PrologParser m Term
 variable = Variable <$> lexeme rawVariable
 
+rawVariable :: Monad m => PrologParser m String
 rawVariable = (:) <$> variableStart <*> many variableChar
   where
     variableStart = upper
     variableChar  = alphaNum <|> char '_'
 
+atom :: Monad m => PrologParser m String
 atom = lexeme rawAtom
 
+rawAtom :: Monad m => PrologParser m String
 rawAtom = quotedAtom
       <|> unquotedAtom
       <|> symbolicAtom
       <?> "atom"
 
-unquotedAtom :: PrologParser String
+unquotedAtom :: Monad m => PrologParser m String
 unquotedAtom = (:) <$> atomStart <*> many atomChar
   where
     atomStart = lower
     atomChar  = alphaNum <|> char '_'
 
-quotedAtom :: PrologParser String
+quotedAtom :: Monad m => PrologParser m String
 quotedAtom = quotes '\'' (many quotedChar)
   where
     quotedChar = noneOf "'"
 
-symbolicAtom :: PrologParser String
+symbolicAtom :: Monad m => PrologParser m String
 symbolicAtom =
   do sym <- many1 symbolicChar
      -- Make sure symbol is not a full stop (a period followed by layout)
@@ -138,19 +163,21 @@ symbolicAtom =
     symbolicChar = oneOf "#$&*+-./:<=>?@\\^`~"
 
 
+parens   :: Monad m => PrologParser m a -> PrologParser m a
 parens   = between (symbol "(") (symbol ")")
+brackets :: Monad m => PrologParser m a -> PrologParser m a
 brackets = between (symbol "[") (symbol "]")
 quotes q = between (char q)     (char q)
 
-symbol :: String -> PrologParser String
 symbol s = lexeme (string s)
-lexeme :: PrologParser a -> PrologParser a
+lexeme :: Monad m => PrologParser m a -> PrologParser m a
 lexeme p = p <* many layout
 
-layout :: PrologParser ()
+layout :: Monad m => PrologParser m ()
 layout = space   *> return ()
      <|> comment *> return ()
 
+comment :: Monad m => PrologParser m String
 comment = symbol "%" *> many commentChar
   where
     commentChar = noneOf "\n"
@@ -158,7 +185,7 @@ comment = symbol "%" *> many commentChar
 
 -- Operator parers
 
-operation :: PrologParser Term
+operation :: Monad m => PrologParser m Term
 operation = toTerm <$> operatorTree 1201 Empty
 
   where
@@ -173,7 +200,7 @@ operation = toTerm <$> operatorTree 1201 Empty
 
     toCompound a subtrees = CompoundTerm a (map toTerm subtrees)
 
-operatorTree :: Integer -> Tree Operand -> PrologParser (Tree Operand)
+operatorTree :: Monad m => Integer -> Tree Operand -> PrologParser m (Tree Operand)
 operatorTree maxPrecedence left = continue <|> end
 
   where
@@ -200,7 +227,7 @@ operatorTree maxPrecedence left = continue <|> end
         right = operatorTree (rbp op) Empty <?> "argument for " ++ describe op
 
 
-operator :: Fixity -> Integer -> PrologParser Operand
+operator :: Monad m => Fixity -> Integer -> PrologParser m Operand
 operator fix maxPrecedence = operator' <?> describeFixity fix ++ " operator"
   where
     operator' =
@@ -250,7 +277,7 @@ quoteAtom a =
     else a
 
 needsQuotes a =
-  case parseFully unquotedAtom "" a of
+  case parse unquotedAtom "" a of
     Left  _ -> True
     Right _ -> False
 
