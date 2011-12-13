@@ -44,11 +44,6 @@ usage =
      exitFailure
 
 
--- | Run a parser and either return its result (if successful) or report the
---   parse error to the user.
-tryParse :: (Monad m, Functor m) => PrologParser m a -> SourceName -> String -> m a
-tryParse p src input = check <$> parse p src input
-
 check :: Either ParseError a -> a
 check = either (error . show) id
 
@@ -62,33 +57,38 @@ readAndConsult file =
 interpreterSession :: [String] -> InterpreterT IO ()
 interpreterSession files =
   do mapM readAndConsult files
-     forever prompt
+     forever readEvalPrint
+
+
+prompt :: IO String
+prompt = do putStr "?- "
+            input <- getLine
+            return ("?- " ++ input)
 
 
 -- | Prompt the user for a query and run it, reporting results as long as the
 --   user requests them (or until they are exhausted).
-prompt =
-  do liftIO $ putStr "?- "
-     liftIO $ hFlush stdout
-     input <- liftIO $ getLine
+readEvalPrint :: InterpreterT IO ()
+readEvalPrint =
+  do input <- liftIO $ prompt
      query <- check <$> consult clause "(user input)" ("?- " ++ input)
      resolution <- resolve query
      liftIO $ showResults resolution
 
-   where
+  where
 
-     -- | Format and print the next available unifier and prompt whether to
-     --   report another.
-     showResults []     = putStrLn "false."
-     showResults (u:us)
-       | M.null u  = putStrLn "true."
-       | otherwise =
-           do putStrLn (formatUnifier u)
-              response <- getLine
-              if response == ";"
-                then showResults us
-                else return ()
+    -- | Format and print the next available unifier and prompt whether to
+    --   report another.
+    showResults []     = putStrLn "false."
+    showResults (u:us)
+      | M.null u  = putStrLn "true."
+      | otherwise =
+          do putStrLn (formatUnifier u)
+             response <- getLine
+             if response == ";"
+               then showResults us
+               else return ()
 
-     formatUnifier u = concat (intersperse "\n" (map formatBinding (M.toList u)))
-       where
-         formatBinding (var,val) = var ++ " = " ++ concrete val
+    formatUnifier u = concat (intersperse "\n" (map formatBinding (M.toList u)))
+      where
+        formatBinding (var,val) = var ++ " = " ++ concrete val
