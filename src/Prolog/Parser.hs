@@ -14,29 +14,48 @@
 
 module Prolog.Parser (
   program,
-  concrete,
+  term,
   parseFully,
+
+  Syntax,
+  concrete,
+  describe,
+  kind,
+
+  PrologParser
 ) where
 
 import Prolog.Data
 
-import Text.ParserCombinators.Parsec
+import Text.Parsec hiding (Empty, State)
 import Control.Monad (guard, when)
+import Control.Monad.State
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
+import Data.Maybe
+import Data.Foldable (toList)
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Sequence (Seq, (|>))
+import qualified Data.Sequence as S
 
 
-parseFully p = parse (p <* eof)
+type PrologParser a = ParsecT String () (State InterpreterState) a
 
 
+parseFully :: PrologParser a -> SourceName -> String -> Either ParseError a
+parseFully p n s = evalState (runParserT (p <* eof) () n s) initialState
+
+
+program :: PrologParser [Term]
 program = many sentence
 
+sentence :: PrologParser Term
 sentence = term <* fullStop
 
 
 -- Term parsers
 
+term :: PrologParser Term
 term = operation <* notFollowedBy primitiveTerm
 
 primitiveTerm = parens term
@@ -78,10 +97,11 @@ list = emptyList
 
 -- Token parsers
 
+fullStop :: PrologParser String
+fullStop = lexeme (string "." <* (layout <|> eof))
+
 number = Number <$> natural
   where natural = read <$> many1 digit
-
-fullStop = lexeme (string "." <* (layout <|> eof))
 
 variable = Variable <$> lexeme rawVariable
 
@@ -97,33 +117,37 @@ rawAtom = quotedAtom
       <|> symbolicAtom
       <?> "atom"
 
+unquotedAtom :: PrologParser String
 unquotedAtom = (:) <$> atomStart <*> many atomChar
   where
     atomStart = lower
     atomChar  = alphaNum <|> char '_'
 
+quotedAtom :: PrologParser String
 quotedAtom = quotes '\'' (many quotedChar)
   where
     quotedChar = noneOf "'"
 
+symbolicAtom :: PrologParser String
 symbolicAtom =
   do sym <- many1 symbolicChar
      -- Make sure symbol is not a full stop (a period followed by layout)
      when (sym == ".") (notFollowedBy layout)
      return sym
-
-
---identifierChar = alphaNum <|> char '_'
-symbolicChar   = oneOf "#$&*+-./:<=>?@\\^`~"
+  where
+    symbolicChar = oneOf "#$&*+-./:<=>?@\\^`~"
 
 
 parens   = between (symbol "(") (symbol ")")
 brackets = between (symbol "[") (symbol "]")
 quotes q = between (char q)     (char q)
 
+symbol :: String -> PrologParser String
 symbol s = lexeme (string s)
+lexeme :: PrologParser a -> PrologParser a
 lexeme p = p <* many layout
 
+layout :: PrologParser ()
 layout = space   *> return ()
      <|> comment *> return ()
 
@@ -134,6 +158,7 @@ comment = symbol "%" *> many commentChar
 
 -- Operator parers
 
+operation :: PrologParser Term
 operation = toTerm <$> operatorTree 1201 Empty
 
   where
@@ -148,6 +173,7 @@ operation = toTerm <$> operatorTree 1201 Empty
 
     toCompound a subtrees = CompoundTerm a (map toTerm subtrees)
 
+operatorTree :: Integer -> Tree Operand -> PrologParser (Tree Operand)
 operatorTree maxPrecedence left = continue <|> end
 
   where
@@ -174,13 +200,37 @@ operatorTree maxPrecedence left = continue <|> end
         right = operatorTree (rbp op) Empty <?> "argument for " ++ describe op
 
 
+operator :: Fixity -> Integer -> PrologParser Operand
 operator fix maxPrecedence = operator' <?> describeFixity fix ++ " operator"
   where
     operator' =
       do a <- try atom
-         Just op <- findOperator fix a <$> getState
+         Just op <- findOperator fix a <$> gets opTable
          guard (maxPrecedence > lbp op)
          return op
+
+
+
+-- Data structures
+
+-- | An abstract syntax element. Has methods for describing the syntax in
+--   output. Minimum complete definition: @concrete@ and @kind@.
+class Syntax s where
+
+  -- | Convert an abstract syntax element into concrete syntax.
+  concrete :: s -> String
+
+  -- | Get a string describing the kind of syntax element (e.g., a term). Used
+  --   by the default definition of @describe@.
+  kind :: s -> String
+
+  -- | Describe the syntax element in human-readable terms, e.g., for an error
+  --   message. The default implementation uses the kind of term and its
+  --   concrete syntax.
+  describe :: s -> String
+  describe s = kind s ++ " " ++ concrete s
+
+
 
 
 -- Term data structures
@@ -200,90 +250,15 @@ quoteAtom a =
     else a
 
 needsQuotes a =
-  case parse (unquotedAtom <* eof) "" a of
+  case parseFully unquotedAtom "" a of
     Left  _ -> True
     Right _ -> False
-
-
--- Operator-associated data structures
-
-data Tree a = Node a (Tree a) (Tree a)
-            | Empty
-            deriving (Eq, Ord, Show)
-
-
-data Operand = Operator Identifier OpDefinition
-             | Operand Term
-             deriving (Eq, Ord, Show)
-
-type OpTable = Map (Identifier, Fixity) OpDefinition
-
-data OpDefinition = OpDefinition {
-                      precedence    :: Int,
-                      fixity        :: Fixity,
-                      associativity :: Associativity
-                    }
-                  deriving (Eq, Ord, Show)
-
-data Fixity = Prefix | Infix | Postfix
-            deriving (Eq, Ord, Show)
-
-data Associativity = NonA | LeftA | RightA
-                   deriving (Eq, Ord, Show)
-
-
--- | Leftward binding precedence. Prefix and operators and operands have an
---   LBP of zero (so that no operands will bind to their left). Left-
---   associative operators have an LBP of one greater than their normal
---   precedence (so that they bind operators with equal precedence to their
---   right).
-lbp :: Operand -> Int
-lbp (Operand  _)     = 0
-lbp (Operator _ def) = lbp' def
-  where
-    lbp' (OpDefinition _    Prefix _    ) = 0
-    lbp' (OpDefinition prec _      LeftA) = prec + 1
-    lbp' (OpDefinition prec _      _    ) = prec
-
--- | Rightward binding precedence. Postfix operators and operands have an
---   RBP of zero (so that no operands will bind to their right). Right-
---   associative operators have an RBP of one greater than their normal
---   precedence (so that they bind operators with equal precedence to their
---   right).
-rbp :: Operand -> Int
-rbp (Operand  _)     = 0
-rbp (Operator _ def) = rbp' def
-  where
-    rbp' (OpDefinition _    Postfix _     ) = 0
-    rbp' (OpDefinition prec _       RightA) = prec + 1
-    rbp' (OpDefinition prec _       _     ) = prec
-
-
-findOperator fix a table = Operator a <$> (M.lookup (a, fix) table)
 
 
 
 describeFixity Infix   = "infix"
 describeFixity Prefix  = "prefix"
 describeFixity Postfix = "postfix"
-
-
--- | An abstract syntax element. Has methods for describing the syntax in
---   output. Minimum complete definition: @concrete@ and @kind@.
-class Syntax s where
-
-  -- | Convert an abstract syntax element into concrete syntax.
-  concrete :: s -> String
-
-  -- | Get a string describing the kind of syntax element (e.g., a term). Used
-  --   by the default definition of @describe@.
-  kind :: s -> String
-
-  -- | Describe the syntax element in human-readable terms, e.g., for an error
-  --   message. The default implementation uses the kind of term and its
-  --   concrete syntax.
-  describe :: s -> String
-  describe s = kind s ++ " " ++ concrete s
 
 
 instance Syntax Operand where

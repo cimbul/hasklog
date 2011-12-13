@@ -19,36 +19,142 @@ module Prolog.Interpreter (
 
 
 import Prolog.Data
+import Prolog.Parser
 
+import Control.Monad.List
+import Control.Monad.State
 import Control.Monad (foldM)
-import Control.Applicative ((<$>))
-import Data.Maybe (mapMaybe)
+import Control.Applicative ((<$>), (<*>))
+import Data.Maybe (mapMaybe, catMaybes)
+import Data.Foldable (toList)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Q
+import Data.Map (Map)
 import qualified Data.Map as M
+import Text.Parsec hiding (State)
 
 
-type Unifier = M.Map Identifier Term
+type Unifier = Map Identifier Term
+
+
+type Predicate = [Term] -> State InterpreterState [([Term], Unifier)]
+
+
+-- | Look up the builtin predicate for a term. Returns @Nothing@ if one does not
+--   exist.
+builtin :: Term -> Maybe Predicate
+builtin t = M.lookup (functor t, arity t) builtins
+
+-- | A map from a functor\/arity pair to a function that computes a builtin
+--   operation
+builtins :: Map (Identifier, Int) Predicate
+builtins = M.fromList [
+    (("fail", 0), bfail),
+    (("true", 0), btrue),
+    (("not",  1), bnot),
+    (("op",   2), boperator)
+  ]
+
+
+-- | "Negation as a failure." Try to resolve the argument as a goal in the
+--   program. Fail if any solutions are found; otherwise succeed.
+bnot :: Predicate
+bnot [goal] =
+  do unifiers <- resolve (GoalClause [goal])
+     case unifiers of
+       u:us -> bfail []
+       []   -> btrue []
+
+-- | Cause unfication to fail immediately.
+bfail :: Predicate
+bfail [] = return []
+
+-- | Succeed without unifying anything or trigerring any further goals.
+--   Strictly speaking, this doesn't have to be a builtin (it could just be
+--   predefined as a fact), but having it as a function helps to write some
+--   other builtins (ones that normally succeed, for instance.)
+btrue :: Predicate
+btrue [] = return [([], M.empty)]
+
+-- | Add a user-defined operator to the parser's operator table.
+boperator :: Predicate
+boperator [Number prec, Atom opType, Atom name] =
+  do updateOpTable $ insertOperator name (opDef opType prec)
+     btrue []
+
+  where
+
+    -- | Extract the fixity and associativity of an operator from a Prolog
+    --   "operator type" atom ("fx", "xfy", etc.).
+    opDef :: Identifier -> Integer -> OpDefinition
+    opDef "xfx" = OpDefinition Infix   NonA
+    opDef "xfy" = OpDefinition Infix   RightA
+    opDef "yfx" = OpDefinition Infix   LeftA
+    opDef "fx"  = OpDefinition Prefix  NonA
+    opDef "fy"  = OpDefinition Prefix  RightA
+    opDef "xf"  = OpDefinition Postfix NonA
+    opDef "yf"  = OpDefinition Postfix LeftA
+    opDef _     = undefined
+
+
+-- Expander
+
+--consult :: String -> State Listing Listing
+--consult source =
+
+program :: PrologParser [HornClause]
+program = catMaybes <$> many rule
+
+rule :: PrologParser (Maybe HornClause)
+rule =
+  do t <- term
+     case clause t of
+       -- Execute goal clauses and return the rest of the program
+       g@(GoalClause _) ->
+         do prog <- gets listing
+            lift $ resolve g
+            return Nothing
+       -- Add definite clauses to the listing and return the clause followed by the
+       -- rest of the program
+       rule ->
+         do appendListing rule
+            return (Just rule)
+
+clause (CompoundTerm ":-" [head, body]) = DefiniteClause head (conjunction body)
+clause (CompoundTerm ":-" [body])       = GoalClause (conjunction body)
+clause (CompoundTerm "?-" [body])       = GoalClause (conjunction body)
+clause fact                             = DefiniteClause fact []
+
+conjunction (CompoundTerm "," [t1, t2]) = t1 : conjunction t2
+conjunction t                           = [t]
 
 
 -- | Resolve the goal clause using the clauses in program. Return a list of all
 --   possible unifiers.
-resolve :: Program -> HornClause -> [Unifier]
-
-resolve prog (GoalClause goals) = resolve' prog goals M.empty
+resolve :: HornClause -> State InterpreterState [Unifier]
+resolve (GoalClause goals) = runListT $ resolve' goals M.empty
 
   where
 
-    resolve' prog []        unifier = return unifier
-    resolve' prog (g:goals) unifier =
-      do (body, unifier') <- mapMaybe (unifyClauses g) prog
+    resolve' :: [Term] -> Unifier -> ListT (State InterpreterState) Unifier
+    resolve' []        unifier = return unifier
+    resolve' (g:goals) unifier =
+      do (body, unifier') <- ListT $ predicate g
          let goals' = map (substituteAll unifier') (body ++ goals)
-         resolve' prog goals' (M.union unifier unifier')
-
-    unifyClauses goal (DefiniteClause head body) =
-      do unifier <- unify goal head
-         return (body, unifier)
+         resolve' goals' (M.union unifier unifier')
 
 -- Cannot resolve with a definite clause
-resolve prog _ = undefined
+resolve _ = undefined
+
+unifyClauses goal (DefiniteClause head body) =
+  do unifier <- unify goal head
+     return (body, unifier)
+
+predicate :: Term -> State InterpreterState [([Term], Unifier)]
+predicate pred =
+  case builtin pred of
+    Just f  -> f (subterms pred)
+    Nothing -> mapMaybe (unifyClauses pred) . toList <$> (gets listing)
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.
