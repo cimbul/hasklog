@@ -30,10 +30,12 @@ module Prolog.Parser (
 
 import Prolog.Data
 
-import Text.Parsec hiding (Empty, State, parse)
+import Text.Parsec hiding (Empty, State, parse, parseTest)
 import Control.Monad (guard, when)
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
+import Data.List (intersperse)
+import Data.Functor.Identity
 import Data.Maybe
 import Data.Foldable (toList)
 import Data.Map (Map)
@@ -47,6 +49,8 @@ type PrologParser m = ParsecT String () (InterpreterT m)
 
 consult :: (Monad m) => PrologParser m a -> SourceName -> String -> InterpreterT m (Either ParseError a)
 consult p = runParserT (p <* eof) ()
+
+parseTest p input = runIdentity $ parse p "" input
 
 parse :: (Monad m) => PrologParser m a -> SourceName -> String -> m (Either ParseError a)
 parse p n s = evalStateT (runParserT (p <* eof) () n s) initialState
@@ -71,7 +75,7 @@ toConjunction t                           = [t]
 -- Term parsers
 
 term :: Monad m => PrologParser m Term
-term = operation <* notFollowedBy primitiveTerm
+term = operation 1201 <* notFollowedBy primitiveTerm
 
 primitiveTerm :: Monad m => PrologParser m Term
 primitiveTerm = parens term
@@ -81,8 +85,11 @@ primitiveTerm = parens term
             <|> compoundOrAtom
             <?> "term"
 
+argument :: Monad m => PrologParser m Term
+argument = operation 1000
+
 compoundOrAtom :: Monad m => PrologParser m Term
-compoundOrAtom = simplify <$> compound
+compoundOrAtom = simplify <$> lexeme compound
   where
     simplify (CompoundTerm a []) = Atom a
     simplify t                   = t
@@ -92,7 +99,7 @@ compound = CompoundTerm <$> functor <*> subterms
   where
     functor :: Monad m => PrologParser m String
     functor  = rawAtom
-    subterms = option [] (parens (term `sepBy` symbol ","))
+    subterms = option [] (parens (argument `sepBy` symbol ","))
 
 list :: Monad m => PrologParser m Term
 list = emptyList
@@ -100,20 +107,21 @@ list = emptyList
 
   where
 
-    emptyList = Atom <$> try (symbol "[]")
 
-    listContents = listTerm <$> term <*> rest
+    listContents = listTerm <$> argument <*> rest
 
     rest = nextItem
        <|> tailItem
        <|> endOfList
 
-    nextItem  = symbol "," *> (listTerm <$> term <*> rest)
-    tailItem  = symbol "|" *> term
+    nextItem  = symbol "," *> listContents
+    tailItem  = symbol "|" *> argument
     endOfList = return (Atom "[]")
 
     listTerm h t = CompoundTerm "." [h,t]
 
+emptyList :: Monad m => PrologParser m Term
+emptyList = Atom <$> try (symbol "[]")
 
 -- Token parsers
 
@@ -121,7 +129,7 @@ fullStop :: Monad m => PrologParser m String
 fullStop = lexeme (string "." <* (layout <|> eof))
 
 number :: Monad m => PrologParser m Term
-number = Number <$> natural
+number = Number <$> lexeme natural
   where natural = read <$> many1 digit
 
 variable :: Monad m => PrologParser m Term
@@ -131,22 +139,26 @@ rawVariable :: Monad m => PrologParser m String
 rawVariable = (:) <$> variableStart <*> many variableChar
   where
     variableStart = upper
-    variableChar  = alphaNum <|> char '_'
+    variableChar  = alphaNum <|> char '_' <?> "rest of variable"
 
 atom :: Monad m => PrologParser m String
 atom = lexeme rawAtom
+
+nonFunctorAtom :: Monad m => PrologParser m String
+nonFunctorAtom = lexeme (rawAtom <* notFollowedBy (symbol "("))
 
 rawAtom :: Monad m => PrologParser m String
 rawAtom = quotedAtom
       <|> unquotedAtom
       <|> symbolicAtom
+      <|> reservedSymbol
       <?> "atom"
 
 unquotedAtom :: Monad m => PrologParser m String
 unquotedAtom = (:) <$> atomStart <*> many atomChar
   where
     atomStart = lower
-    atomChar  = alphaNum <|> char '_'
+    atomChar  = alphaNum <|> char '_' <?> "rest of atom"
 
 quotedAtom :: Monad m => PrologParser m String
 quotedAtom = quotes '\'' (many quotedChar)
@@ -162,14 +174,17 @@ symbolicAtom =
   where
     symbolicChar = oneOf "#$&*+-./:<=>?@\\^`~"
 
+reservedSymbol :: Monad m => PrologParser m String
+reservedSymbol = symbol ","
+
 
 parens   :: Monad m => PrologParser m a -> PrologParser m a
-parens   = between (symbol "(") (symbol ")")
+parens   p = lexeme $ between (symbol "(") (symbol ")") p
 brackets :: Monad m => PrologParser m a -> PrologParser m a
-brackets = between (symbol "[") (symbol "]")
-quotes q = between (char q)     (char q)
+brackets p = lexeme $ between (symbol "[") (symbol "]") p
+quotes q p = lexeme $ between (char q)     (char q)     p
 
-symbol s = lexeme (string s)
+symbol s = lexeme $ string s
 lexeme :: Monad m => PrologParser m a -> PrologParser m a
 lexeme p = p <* many layout
 
@@ -183,10 +198,10 @@ comment = symbol "%" *> many commentChar
     commentChar = noneOf "\n"
 
 
--- Operator parers
+-- Operator parsers
 
-operation :: Monad m => PrologParser m Term
-operation = toTerm <$> operatorTree 1201 Empty
+operation :: Monad m => Integer -> PrologParser m Term
+operation maxPrec = toTerm <$> operatorTree maxPrec Empty
 
   where
 
@@ -231,7 +246,7 @@ operator :: Monad m => Fixity -> Integer -> PrologParser m Operand
 operator fix maxPrecedence = operator' <?> describeFixity fix ++ " operator"
   where
     operator' =
-      do a <- try atom
+      do a <- try nonFunctorAtom
          Just op <- findOperator fix a <$> gets opTable
          guard (maxPrecedence > lbp op)
          return op
@@ -268,8 +283,9 @@ instance Syntax Term where
 
   concrete (Number n) = show n
   concrete (Atom a)   = quoteAtom a
-  concrete (CompoundTerm a subterms) =
-    quoteAtom a ++ "(" ++ concatMap concrete subterms ++ ")"
+  concrete (CompoundTerm a subterms) = quoteAtom a ++ "(" ++ concreteSubterms ++ ")"
+    where
+      concreteSubterms = concat (intersperse ", " (map concrete subterms))
 
 quoteAtom a =
   if needsQuotes a
@@ -277,7 +293,7 @@ quoteAtom a =
     else a
 
 needsQuotes a =
-  case parse unquotedAtom "" a of
+  case parseTest (unquotedAtom <|> symbolicAtom) a of
     Left  _ -> True
     Right _ -> False
 
