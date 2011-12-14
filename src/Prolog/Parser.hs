@@ -19,11 +19,7 @@ module Prolog.Parser (
 
   consult,
   parse,
-
-  Syntax,
-  concrete,
-  describe,
-  kind,
+  parseTest,
 
   PrologParser
 ) where
@@ -48,12 +44,12 @@ type PrologParser m = ParsecT String () (InterpreterT m)
 
 
 consult :: (Monad m) => PrologParser m a -> SourceName -> String -> InterpreterT m (Either ParseError a)
-consult p = runParserT (p <* eof) ()
+consult p = runParserT (many layout *> p <* eof) ()
 
 parseTest p input = runIdentity $ parse p "" input
 
 parse :: (Monad m) => PrologParser m a -> SourceName -> String -> m (Either ParseError a)
-parse p n s = evalStateT (runParserT (p <* eof) () n s) initialState
+parse p n s = evalStateT (consult p n s) initialState
 
 sentence :: Monad m => PrologParser m Term
 sentence = term <* fullStop
@@ -252,30 +248,7 @@ operator fix maxPrecedence = operator' <?> describeFixity fix ++ " operator"
          return op
 
 
-
--- Data structures
-
--- | An abstract syntax element. Has methods for describing the syntax in
---   output. Minimum complete definition: @concrete@ and @kind@.
-class Syntax s where
-
-  -- | Convert an abstract syntax element into concrete syntax.
-  concrete :: s -> String
-
-  -- | Get a string describing the kind of syntax element (e.g., a term). Used
-  --   by the default definition of @describe@.
-  kind :: s -> String
-
-  -- | Describe the syntax element in human-readable terms, e.g., for an error
-  --   message. The default implementation uses the kind of term and its
-  --   concrete syntax.
-  describe :: s -> String
-  describe s = kind s ++ " " ++ concrete s
-
-
-
-
--- Term data structures
+-- Syntax instances for term/operator data structures
 
 instance Syntax Term where
 
@@ -299,19 +272,14 @@ needsQuotes a =
 
 
 
-describeFixity Infix   = "infix"
-describeFixity Prefix  = "prefix"
-describeFixity Postfix = "postfix"
-
-
 instance Syntax Operand where
 
   kind (Operand  _)     = "operand"
-  kind (Operator _ def) =
-    case fixity def of
-      Infix   -> "infix operator"
-      Prefix  -> "prefix operator"
-      Postfix -> "postfix operator"
+  kind (Operator _ def) = describeFixity (fixity def) ++ " operator"
 
   concrete (Operand  t)   = concrete t
   concrete (Operator a _) = concrete (Atom a)
+
+describeFixity Infix   = "infix"
+describeFixity Prefix  = "prefix"
+describeFixity Postfix = "postfix"

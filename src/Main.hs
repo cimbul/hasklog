@@ -71,7 +71,7 @@ prompt = do putStr "?- "
 readEvalPrint :: InterpreterT IO ()
 readEvalPrint =
   do input <- liftIO $ prompt
-     query <- check <$> consult clause "(user input)" ("?- " ++ input)
+     query <- check <$> consult clause "(user input)" input
      resolution <- resolve query
      liftIO $ showResults resolution
 

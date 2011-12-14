@@ -14,10 +14,10 @@
 
 module Prolog.Interpreter (
   interpret,
-
-  unify,
-  resolve,
   program,
+
+  resolve,
+  unify,
 ) where
 
 
@@ -44,6 +44,13 @@ type Predicate m = [Term] -> InterpreterT m [([Term], Unifier)]
 
 interpret p = evalStateT p initialState
 
+
+
+--
+-- Builtins
+--
+
+
 -- | Look up the builtin predicate for a term. Returns @Nothing@ if one does not
 --   exist.
 builtin :: (MonadIO m, Functor m) => Term -> Maybe (Predicate m)
@@ -59,7 +66,6 @@ builtins = M.fromList [
     (("consult", 1), bconsult),
     (("op",      2), boperator)
   ]
-
 
 -- | "Negation as a failure." Try to resolve the argument as a goal in the
 --   program. Fail if any solutions are found; otherwise succeed.
@@ -110,7 +116,11 @@ bconsult [Atom filename] =
        Right _ -> btrue []
 
 
--- Expander
+
+--
+-- Interactive program parsing
+--
+
 
 program :: (MonadIO m, Functor m) => PrologParser m [HornClause]
 program = catMaybes <$> many rule
@@ -132,10 +142,16 @@ rule =
 
 
 
+--
+-- Resolution
+--
+
+
 -- | Resolve the goal clause using the clauses in program. Return a list of all
 --   possible unifiers.
 resolve :: (MonadIO m, Functor m) => HornClause -> InterpreterT m [Unifier]
-resolve (GoalClause goals) = runListT $ resolve' goals M.empty
+resolve (DefiniteClause _ _) = undefined
+resolve (GoalClause goals)   = runListT $ resolve' goals M.empty
 
   where
 
@@ -146,18 +162,17 @@ resolve (GoalClause goals) = runListT $ resolve' goals M.empty
          let goals' = map (substituteAll unifier') (body ++ goals)
          resolve' goals' (M.union unifier unifier')
 
--- Cannot resolve with a definite clause
-resolve _ = undefined
-
 unifyClauses goal (DefiniteClause head body) =
   do unifier <- unify goal head
      return (body, unifier)
 
+-- | "Call" a predicate (possibly builtin) and return all possible (/unifier/,
+--   /body goal/) pairs.
 predicate :: (MonadIO m, Functor m) => Term -> InterpreterT m [([Term], Unifier)]
 predicate pred =
   case builtin pred of
     Just f  -> f (subterms pred)
-    Nothing -> mapMaybe (unifyClauses pred) . toList <$> (gets listing)
+    Nothing -> mapMaybe (unifyClauses pred) <$> gets (toList . listing)
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.

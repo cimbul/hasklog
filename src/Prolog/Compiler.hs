@@ -268,14 +268,6 @@ data WAM = GetStructure Functor  Register
          deriving (Eq, Ord, Show)
 
 
-delim elems = concat $ intersperse "\t" elems
-
-
--- TODO: Remove this once we merge with the other branch
-class Syntax s where
-
-  kind     :: s -> String
-  concrete :: s -> String
 
 instance Syntax WAM where
 
@@ -298,11 +290,15 @@ instance Syntax WAM where
   concrete (RetryMeElse l) = delim ["retry_me_else", concrete l]
   concrete (TrustMe)       = "trust_me"
 
+delim elems = concat $ intersperse "\t" elems
+
+
 instance Syntax Label where
 
   kind _ = "label"
 
   concrete (Label l) = show l
+
 
 instance Syntax Register where
 
@@ -311,6 +307,7 @@ instance Syntax Register where
 
   concrete (Register r) = "X" ++ show r
   concrete (StackVar v) = "Y" ++ show v
+
 
 instance Syntax Functor where
 

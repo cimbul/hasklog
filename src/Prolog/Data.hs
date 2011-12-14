@@ -21,6 +21,11 @@ module Prolog.Data (
   HornClause(..),
   Listing,
 
+  Syntax,
+  kind,
+  concrete,
+  describe,
+
   Tree(..),
   Operand(..),
   OpTable,
@@ -32,7 +37,6 @@ module Prolog.Data (
   findOperator,
 
   InterpreterT,
-  Interpreter,
   InterpreterState,
   listing,
   opTable,
@@ -78,11 +82,28 @@ type Listing = Seq HornClause
 
 
 
+-- | An abstract syntax element. Has methods for describing the syntax in
+--   output. Minimum complete definition: @concrete@ and @kind@.
+class Syntax s where
+
+  -- | Convert an abstract syntax element into concrete syntax.
+  concrete :: s -> String
+
+  -- | Get a string describing the kind of syntax element (e.g., a term). Used
+  --   by the default definition of @describe@.
+  kind :: s -> String
+
+  -- | Describe the syntax element in human-readable terms, e.g., for an error
+  --   message. The default implementation uses the kind of term and its
+  --   concrete syntax.
+  describe :: s -> String
+  describe s = kind s ++ " " ++ concrete s
+
+
 
 -- Interpreter/parser state
 
 type InterpreterT m = StateT InterpreterState m
-type Interpreter    = StateT InterpreterState IO
 
 data InterpreterState = InterpreterState {
                           opTable :: OpTable,
@@ -109,10 +130,6 @@ updateOpTable f = modify (\s -> s { opTable = f (opTable s) })
 updateListing f = modify (\s -> s { listing = f (listing s) })
 
 appendListing t = updateListing (|> t)
-
---getOpTable = gets opTable
-
---getListing = gets listing
 
 
 -- Operator-associated data structures
