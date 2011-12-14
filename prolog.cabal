@@ -6,8 +6,8 @@ license: AllRightsReserved
 license-file: ""
 copyright:
 maintainer:
-build-depends: base -any, containers -any, mtl >=2, parsec >=3,
-               transformers -any
+build-depends: transformers -any, parsec >=3, mtl >=2,
+               containers -any, base -any
 stability:
 homepage:
 package-url:
@@ -43,8 +43,8 @@ includes:
 install-includes:
 include-dirs:
 hs-source-dirs: src
-other-modules: Prolog.Compiler Prolog.Data Prolog.Interpreter
-               Prolog.Parser
+other-modules: Prolog.Test Prolog.Compiler Prolog.Data
+               Prolog.Interpreter Prolog.Parser
 ghc-prof-options:
 ghc-shared-options:
 ghc-options:
