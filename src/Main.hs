@@ -62,6 +62,7 @@ interpreterSession files =
 
 prompt :: IO String
 prompt = do putStr "?- "
+            hFlush stdout
             input <- getLine
             return ("?- " ++ input)
 
@@ -83,10 +84,12 @@ readEvalPrint =
     showResults (u:us)
       | M.null u  = putStrLn "true."
       | otherwise =
-          do putStrLn (formatUnifier u)
+          do putStr $ (formatUnifier u) ++ " ? "
+             hFlush stdout
              response <- getLine
              if response == ";"
-               then showResults us
+               then do putStrLn ""
+                       showResults us
                else return ()
 
     formatUnifier u = concat (intersperse "\n" (map formatBinding (M.toList u)))
