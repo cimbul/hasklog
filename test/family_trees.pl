@@ -20,10 +20,10 @@ siblings(Sibling1, Sibling2) :- parent_child(Parent, Sibling1), parent_child(Par
 
 % Family tree:
 %
-%            dave       kim
-%              |         |
-%              +----+----+
-%                   |
+%  dave       kim
+%    |         |
+%    +----+----+
+%         |
 %      george     susan
 %         |         |
 %         +----+----+
