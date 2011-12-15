@@ -302,3 +302,15 @@ instance Syntax Operand where
 describeFixity Infix   = "infix"
 describeFixity Prefix  = "prefix"
 describeFixity Postfix = "postfix"
+
+
+
+instance Syntax HornClause where
+
+  kind (DefiniteClause _ _) = "definite clause"
+  kind (GoalClause _)       = "goal clause"
+
+  concrete (DefiniteClause head body) = concrete head ++ " :- " ++ concreteBody
+    where
+      concreteBody = concat (intersperse ", " (map concrete body))
+  concrete (GoalClause goals) = concat (intersperse ", " (map concrete goals))

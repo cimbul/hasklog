@@ -23,6 +23,7 @@ module Prolog.Interpreter (
 
 import Prolog.Data
 import Prolog.Parser
+import Prolog.Compiler
 
 import Control.Monad.List
 import Control.Monad.State
@@ -66,6 +67,7 @@ builtins = M.fromList [
     (("true",    0), btrue),
     (("not",     1), bnot),
     (("consult", 1), bconsult),
+    (("compile", 1), bcompile),
     (("op",      3), boperator)
   ]
 
@@ -111,11 +113,20 @@ boperator [Number prec, Atom opType, Atom name] =
 
 bconsult :: (MonadIO m, Functor m) => Predicate m
 bconsult [Atom filename] =
-  do contents <- liftIO $ readFile (filename ++ ".pl")
-     result <- consult program filename contents
+  do let filename' = filename ++ ".pl"
+     contents <- liftIO $ readFile filename'
+     result <- consult program filename' contents
      case result of
        Left _  -> bfail []  -- TODO: Report error
        Right _ -> btrue []
+
+bcompile :: (MonadIO m, Functor m) => Predicate m
+bcompile [Atom filename] =
+  do prog <- gets (toList . listing)
+     let compiled = compileListing prog
+     let filename' = filename ++ ".wam"
+     liftIO $ writeFile filename' (concrete compiled)
+     btrue[]
 
 
 

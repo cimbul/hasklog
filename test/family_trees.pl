@@ -18,6 +18,24 @@ siblings(Sibling1, Sibling2) :- parent_child(Parent, Sibling1), parent_child(Par
 % Database
 %
 
+% Family tree:
+%
+%            dave       kim
+%              |         |
+%              +----+----+
+%                   |
+%      george     susan
+%         |         |
+%         +----+----+
+%              |
+%    bill     mary
+%      |       |
+%      +---+---+
+%          |
+%      +---+---+
+%      |       |
+%     ted     bob
+
 parent_child(bill, ted).
 parent_child(bill, bob).
 parent_child(mary, ted).

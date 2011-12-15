@@ -13,7 +13,7 @@
 -----------------------------------------------------------------------------
 
 module Prolog.Compiler (
-
+  compileListing
 ) where
 
 import Prolog.Data
@@ -22,6 +22,7 @@ import Prelude hiding (Functor)
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Writer hiding (Functor)
 import Control.Monad.State hiding (Functor)
+import Data.Foldable (toList)
 import Data.List (intersperse)
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -31,22 +32,53 @@ import Data.Set (Set)
 import qualified Data.Set as S
 
 
--- | Compile a predicate into a sequence of WAM instructions. The output is
---   given by the @Writer@ monad. Use @execWriter@ to extract it.
-compilePredicate :: [HornClause] -> Writer (Seq WAM) ()
-compilePredicate [singleton]  = compileClause singleton
-compilePredicate (first:rest) =
-  do emit (TryMeElse (Label 1))
-     compileClause first
-     compileRest 1 rest
+runCompiler = toList . execWriter
 
-compileRest n [last] =
-  do emit (TrustMe)
-     compileClause last
-compileRest n (next:rest) =
-  do emit (RetryMeElse (Label n))
-     compileClause next
-     compileRest (n + 1) rest
+
+simplify (DefiniteClause head body) = DefiniteClause (simplifyAtoms head) (map simplifyAtoms body)
+
+simplifyAtoms (Atom a)            = CompoundTerm a []
+simplifyAtoms (CompoundTerm f ts) = CompoundTerm f (map simplifyAtoms ts)
+simplifyAtoms t                   = t
+
+
+compileListing :: [HornClause] -> Program
+compileListing listing = Program (map (uncurry compilePredicate) (M.toList predicates))
+
+  where
+
+    listing' = map simplify listing
+
+    predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty $ listing'
+
+    ftor (DefiniteClause head body) = Functor (functor head) (arity head)
+
+
+-- | Compile a predicate into a sequence of WAM instructions.
+compilePredicate :: Functor -> [HornClause] -> Predicate
+compilePredicate f clauses = Predicate f (compileRules clauses)
+
+compileRules :: [HornClause] -> [Rule]
+compileRules [singleton]  = [compileRule 0 (compileClause singleton)]
+compileRules (first:rest) =
+    zipWith compileRule [0..] $ compileFirst first : compileRest 1 rest
+
+  where
+
+    compileRest n [last]      = [compileLast n last]
+    compileRest n (next:rest) = compileMiddle n next : compileRest (n + 1) rest
+
+    compileFirst clause =
+      do emit (TryMeElse (Label 1))
+         compileClause clause
+    compileMiddle n clause =
+      do emit (RetryMeElse (Label (n + 1)))
+         compileClause clause
+    compileLast n clause =
+      do emit (TrustMe)
+         compileClause clause
+
+compileRule n instructions = Rule (Label n) (runCompiler instructions)
 
 -- | Compile a rule into a sequence of WAM instructions.
 compileClause :: HornClause -> Writer (Seq WAM) ()
@@ -178,8 +210,8 @@ data Allocation = Allocation {
                   }
                 deriving (Eq, Ord, Show)
 
-emptyAllocation = Allocation 0 M.empty
-reserveArgs n   = Allocation n M.empty
+emptyAllocation = Allocation 1 M.empty
+reserveArgs n   = Allocation (n+1) M.empty
 
 allocateClause  perms head body = evalState (allocateClause' perms head body) emptyAllocation
 allocateClause' perms head body =
@@ -239,15 +271,11 @@ allocateVar permanents v =
 
 -- WAM Instructions
 
-data Register = Register Int
-              | StackVar Int
-              deriving (Eq, Ord, Show)
+newtype Program = Program [Predicate]
 
-newtype Label = Label Int
-              deriving (Eq, Ord, Show)
+data Predicate = Predicate Functor [Rule]
 
-data Functor = Functor Identifier Int
-             deriving (Eq, Ord, Show)
+data Rule = Rule Label [WAM]
 
 data WAM = GetStructure Functor  Register
          | GetVariable  Register Register
@@ -266,6 +294,48 @@ data WAM = GetStructure Functor  Register
          | RetryMeElse Label
          | TrustMe
          deriving (Eq, Ord, Show)
+
+data Register = Register Int
+              | StackVar Int
+              deriving (Eq, Ord, Show)
+
+newtype Label = Label Int
+              deriving (Eq, Ord, Show)
+
+data Functor = Functor Identifier Int
+             deriving (Eq, Ord, Show)
+
+
+instance Syntax Program where
+
+  kind _ = "program"
+
+  describe = kind
+
+  concrete (Program predicates) = concat (intersperse "\n\n" (map concrete predicates))
+
+
+instance Syntax Predicate where
+
+  kind _ = "predicate"
+
+  describe (Predicate f _) = "predicate " ++ concrete f
+
+  concrete (Predicate f rules) = concrete f ++ ":" ++ concreteRules
+    where
+      concreteRules = concatMap (\r -> "\n\t" ++ concrete r) rules
+
+
+
+instance Syntax Rule where
+
+  kind _ = "rule"
+
+  describe (Rule label _) = "rule " ++ concrete label
+
+  concrete (Rule label instructions) = concrete label ++ ":" ++ concreteInsts
+    where
+      concreteInsts = concatMap (\i -> "\n\t\t" ++ concrete i) instructions
 
 
 
@@ -313,4 +383,4 @@ instance Syntax Functor where
 
   kind _ = "functor"
 
-  concrete (Functor f n) = show f ++ "/" ++ show n
+  concrete (Functor f n) = f ++ "/" ++ show n
