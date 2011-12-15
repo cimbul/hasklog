@@ -18,8 +18,21 @@ module Prolog.Test (
 
 import Prolog.Data
 import Prolog.Parser
+import Prolog.Interpreter
+
+import Data.Map (Map)
+import qualified Data.Map as M
 
 import Test.HUnit
+
+
+p input =
+  case parseTest term input of
+    Left _     -> error ("Could not parse \"" ++ input ++ "\"")
+    Right rslt -> rslt
+
+
+-- Parser
 
 
 assertParseError parser input =
@@ -102,4 +115,59 @@ test_parseTermFailure = TestList $ map (\input ->
 test_parser = TestList [
   test_parseTerm,
   test_parseTermFailure
+ ]
+
+
+
+
+-- Unification
+
+unifySuccesses = [
+  ("a", "a", []),
+  ("X", "a", [("X", "a")]),
+  ("a", "X", [("X", "a")]),
+  ("X", "X", []),
+  ("X", "Y", [("X", "Y")]),
+
+  ("X",          "f(a, b)", [("X", "f(a, b)")]),
+  ("f(a, X)",    "f(a, b)", [("X", "b")]),
+  ("f(X)",       "f(Y)",    [("X", "Y")]),
+  ("f(X)",       "f(g(Y))", [("X", "g(Y)")]),
+  ("f(g(X), X)", "f(Y, a)", [("X", "a"), ("Y", "g(a)")]),
+  ("f(X, Y)",    "f(a, X)", [("X", "a"), ("Y", "a")]),
+  ("f(X, X)",    "f(a, a)", [("X", "a")])
+ ]
+
+test_unifySuccesses = TestList $ map unifySuccessTestCase unifySuccesses
+
+  where
+
+    unifySuccessTestCase (a, b, results) =
+        label ~: unify (p a) (p b) ~?= Just (M.fromList parsedResults)
+      where
+        label = a ++ " == " ++ b
+        parsedResults = map (\(var, val) -> (var, p val)) results
+
+
+unifyFailures = [
+  ("a",       "b"),      -- Unequal constants
+  ("f(a)",    "g(a)"),   -- Unequal functors
+  ("f(a, b)", "f(a)"),   -- Unequal arities
+  ("X",       "f(X)"),   -- Occurs check
+  ("f(X, X)", "f(a, b)") -- Double unification to unequal constants
+ ]
+
+test_unifyFailures = TestList $ map unifyFailureTestCase unifyFailures
+
+  where
+
+    unifyFailureTestCase (a, b) =
+        label ~: unify (p a) (p b) ~?= Nothing
+      where
+        label = a ++ " == " ++ b
+
+
+test_unification = TestList [
+   test_unifySuccesses,
+   test_unifyFailures
  ]

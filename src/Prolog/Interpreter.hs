@@ -130,15 +130,15 @@ rule =
   do c <- clause
      case c of
        -- Execute goal clauses and return the rest of the program
-       g@(GoalClause _) ->
+       GoalClause _ ->
          do prog <- gets listing
-            lift $ resolve g
+            lift $ resolve c
             return Nothing
        -- Add definite clauses to the listing and return the clause followed by the
        -- rest of the program
-       rule ->
-         do appendListing rule
-            return (Just rule)
+       DefiniteClause _ _ ->
+         do appendListing c
+            return (Just c)
 
 
 
@@ -202,8 +202,13 @@ unify a b = unify' a b M.empty
       | a == b     = Just unifier
       | occurs a b = Nothing
       | otherwise  =
-          let unifier' = M.map (substitute a b) unifier
-           in Just (M.insert var b unifier')
+          -- If this variable has already been unified with another value, then
+          -- unify b with that value. Otherwise just unify the variable with b.
+          case M.lookup var unifier of
+            Just c -> unify' c b unifier
+            Nothing ->
+              let unifier' = M.map (substitute a b) unifier
+               in Just (M.insert var b unifier')
 
     -- Flip the direction if b is a variable but a is not.
     unify' a b@(Variable var) unifier =

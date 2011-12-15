@@ -58,20 +58,22 @@ sentence = term <* fullStop
 clause :: Monad m => PrologParser m HornClause
 clause = toClause <$> sentence
 
-toClause (CompoundTerm ":-" [head, body]) = DefiniteClause head (toConjunction body)
-toClause (CompoundTerm ":-" [body])       = GoalClause (toConjunction body)
-toClause (CompoundTerm "?-" [body])       = GoalClause (toConjunction body)
-toClause fact                             = DefiniteClause fact []
+  where
 
--- | Convert any (possibly nested) conjunction terms into a list of terms.
-toConjunction (CompoundTerm "," [t1, t2]) = t1 : toConjunction t2
-toConjunction t                           = [t]
+    toClause (CompoundTerm ":-" [head, body]) = DefiniteClause head (toConjunction body)
+    toClause (CompoundTerm ":-" [body])       = GoalClause (toConjunction body)
+    toClause (CompoundTerm "?-" [body])       = GoalClause (toConjunction body)
+    toClause fact                             = DefiniteClause fact []
+
+    -- | Convert any (possibly nested) conjunction terms into a list of terms.
+    toConjunction (CompoundTerm "," [t1, t2]) = t1 : toConjunction t2
+    toConjunction t                           = [t]
 
 
 -- Term parsers
 
 term :: Monad m => PrologParser m Term
-term = operation 1201 <* notFollowedBy primitiveTerm
+term = operation 1200 <* notFollowedBy primitiveTerm
 
 primitiveTerm :: Monad m => PrologParser m Term
 primitiveTerm = parens term
@@ -82,7 +84,7 @@ primitiveTerm = parens term
             <?> "term"
 
 argument :: Monad m => PrologParser m Term
-argument = operation 1000
+argument = operation 999
 
 compoundOrAtom :: Monad m => PrologParser m Term
 compoundOrAtom = simplify <$> lexeme compound
@@ -164,8 +166,8 @@ quotedAtom = quotes '\'' (many quotedChar)
 symbolicAtom :: Monad m => PrologParser m String
 symbolicAtom =
   do sym <- many1 symbolicChar
-     -- Make sure symbol is not a full stop (a period followed by layout)
-     when (sym == ".") (notFollowedBy layout)
+     -- Make sure symbol is not a full stop (a period followed by layout or end of input)
+     when (sym == ".") (lookAhead anyToken >> notFollowedBy layout)
      return sym
   where
     symbolicChar = oneOf "#$&*+-./:<=>?@\\^`~"
@@ -189,7 +191,7 @@ layout = space   *> return ()
      <|> comment *> return ()
 
 comment :: Monad m => PrologParser m String
-comment = symbol "%" *> many commentChar
+comment = char '%' *> many commentChar <?> "comment"
   where
     commentChar = noneOf "\n"
 
@@ -243,9 +245,12 @@ operator fix maxPrecedence = operator' <?> describeFixity fix ++ " operator"
   where
     operator' =
       do a <- try nonFunctorAtom
-         Just op <- findOperator fix a <$> gets opTable
-         guard (maxPrecedence > lbp op)
-         return op
+         rslt <- findOperator fix a <$> gets opTable
+         case rslt of
+           Nothing -> mzero
+           Just op ->
+             do guard (maxPrecedence >= lbp op)
+                return op
 
 
 -- Syntax instances for term/operator data structures
@@ -254,8 +259,9 @@ instance Syntax Term where
 
   kind _ = "term"
 
-  concrete (Number n) = show n
-  concrete (Atom a)   = quoteAtom a
+  concrete (Number n)   = show n
+  concrete (Atom a)     = quoteAtom a
+  concrete (Variable v) = v
   concrete (CompoundTerm a subterms) = quoteAtom a ++ "(" ++ concreteSubterms ++ ")"
     where
       concreteSubterms = concat (intersperse ", " (map concrete subterms))
