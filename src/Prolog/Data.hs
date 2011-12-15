@@ -18,6 +18,7 @@ module Prolog.Data (
   subterms,
   functor,
   arity,
+  variables,
   HornClause(..),
   Listing,
 
@@ -50,9 +51,11 @@ module Prolog.Data (
 import Control.Applicative ((<$>))
 import Control.Monad.State
 import Data.Sequence (Seq, (|>))
-import qualified Data.Sequence as S
+import qualified Data.Sequence as Q
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Set (Set)
+import qualified Data.Set as S
 
 
 type Identifier = String
@@ -72,6 +75,11 @@ functor _                  = undefined
 
 arity (CompoundTerm _ ts) = length ts
 arity _                   = 0
+
+variables :: Term -> Set Identifier
+variables (Variable v)        = S.singleton v
+variables (CompoundTerm _ ts) = S.unions $ map variables ts
+variables _                   = S.empty
 
 data HornClause = DefiniteClause Term [Term]
                 | GoalClause [Term]
@@ -123,7 +131,7 @@ initialOpTable = M.fromList [
     (("not", Prefix),  OpDefinition Prefix  NonA   900)
   ]
 
-initialListing = S.empty
+initialListing = Q.empty
 
 updateOpTable f = modify (\s -> s { opTable = f (opTable s) })
 

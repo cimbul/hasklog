@@ -260,11 +260,24 @@ instance Syntax Term where
   kind _ = "term"
 
   concrete (Number n)   = show n
+  concrete (Atom "[]")  = "[]"
   concrete (Atom a)     = quoteAtom a
   concrete (Variable v) = v
+
+  -- Lists are special-cased to output in syntactic sugar ("[a,b,c|d]") form rather than
+  -- explicit form (".(a, .(b, .(c, d)))").'
+  concrete (CompoundTerm "." [head, tail]) =
+      "[" ++ concrete head ++ concreteList tail ++ "]"
+    where
+      concreteList (Atom "[]") = ""
+      concreteList (CompoundTerm "." [head, tail]) =
+        ", " ++ concrete head ++ concreteList tail
+      concreteList tail = " | " ++ concrete tail
+
   concrete (CompoundTerm a subterms) = quoteAtom a ++ "(" ++ concreteSubterms ++ ")"
     where
       concreteSubterms = concat (intersperse ", " (map concrete subterms))
+
 
 quoteAtom a =
   if needsQuotes a

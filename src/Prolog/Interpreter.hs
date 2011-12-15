@@ -34,6 +34,8 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Q
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Text.Parsec hiding (State)
 
 
@@ -64,7 +66,7 @@ builtins = M.fromList [
     (("true",    0), btrue),
     (("not",     1), bnot),
     (("consult", 1), bconsult),
-    (("op",      2), boperator)
+    (("op",      3), boperator)
   ]
 
 -- | "Negation as a failure." Try to resolve the argument as a goal in the
@@ -109,7 +111,7 @@ boperator [Number prec, Atom opType, Atom name] =
 
 bconsult :: (MonadIO m, Functor m) => Predicate m
 bconsult [Atom filename] =
-  do contents <- liftIO $ readFile filename
+  do contents <- liftIO $ readFile (filename ++ ".pl")
      result <- consult program filename contents
      case result of
        Left _  -> bfail []  -- TODO: Report error
@@ -151,28 +153,49 @@ rule =
 --   possible unifiers.
 resolve :: (MonadIO m, Functor m) => HornClause -> InterpreterT m [Unifier]
 resolve (DefiniteClause _ _) = undefined
-resolve (GoalClause goals)   = runListT $ resolve' goals M.empty
+resolve (GoalClause goals)   = runListT $ resolve' goalVars 0 goals M.empty
 
   where
 
-    resolve' :: (MonadIO m, Functor m) => [Term] -> Unifier -> ListT (InterpreterT m) Unifier
-    resolve' []        unifier = return unifier
-    resolve' (g:goals) unifier =
-      do (body, unifier') <- ListT $ predicate g
-         let goals' = map (substituteAll unifier') (body ++ goals)
-         resolve' goals' (M.union unifier unifier')
+    resolve' :: (MonadIO m, Functor m) => Set Identifier -> Int -> [Term] -> Unifier -> ListT (InterpreterT m) Unifier
+    resolve' roots prefix []        unifier = return unifier
+    resolve' roots prefix (g:goals) unifier =
+      do (body, unifier') <- ListT $ predicate prefix g
+         let goals'    = map (substituteAll unifier') (body ++ goals)
+         let unifier'' = pruneUnifier roots (M.union unifier unifier')
+         resolve' roots (prefix + 1) goals' unifier''
 
-unifyClauses goal (DefiniteClause head body) =
-  do unifier <- unify goal head
-     return (body, unifier)
+    goalVars = S.unions $ map variables goals
+
+unifyClauses prefix goal (DefiniteClause head body) =
+  do let head' = renameVars prefix head
+     let body' = renameVars prefix `map` body
+     unifier <- unify goal head'
+     return (body', unifier)
 
 -- | "Call" a predicate (possibly builtin) and return all possible (/unifier/,
 --   /body goal/) pairs.
-predicate :: (MonadIO m, Functor m) => Term -> InterpreterT m [([Term], Unifier)]
-predicate pred =
+predicate :: (MonadIO m, Functor m) => Int -> Term -> InterpreterT m [([Term], Unifier)]
+predicate prefix pred =
   case builtin pred of
     Just f  -> f (subterms pred)
-    Nothing -> mapMaybe (unifyClauses pred) <$> gets (toList . listing)
+    Nothing -> mapMaybe (unifyClauses prefix pred) <$> gets (toList . listing)
+
+
+-- | Anonymize all the variables in a term by mangling their names with an integer prefix.
+renameVars :: Int -> Term -> Term
+renameVars prefix (Variable v)        = Variable ("_@" ++ show prefix ++ "#" ++ v)
+renameVars prefix (CompoundTerm f ts) = CompoundTerm f (renameVars prefix `map` ts)
+renameVars _      t                   = t
+
+
+-- | Discard variables in a unifier that aren't in the set of root variables we're
+--   interested in keeping.
+pruneUnifier :: Set Identifier -> Unifier -> Unifier
+pruneUnifier roots unifier =
+    M.map (substituteAll unifier) $ M.filterWithKey isRoot unifier
+  where
+    isRoot var val = S.member var roots
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.
@@ -205,7 +228,7 @@ unify a b = unify' a b M.empty
           -- If this variable has already been unified with another value, then
           -- unify b with that value. Otherwise just unify the variable with b.
           case M.lookup var unifier of
-            Just c -> unify' c b unifier
+            Just c  -> unify' c b unifier
             Nothing ->
               let unifier' = M.map (substitute a b) unifier
                in Just (M.insert var b unifier')
