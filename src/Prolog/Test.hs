@@ -12,8 +12,8 @@
 --
 -----------------------------------------------------------------------------
 
-module Prolog.Test (
-
+module Main (
+  main,
 ) where
 
 import Prolog.Data
@@ -171,3 +171,11 @@ test_unification = TestList [
    test_unifySuccesses,
    test_unifyFailures
  ]
+
+
+tests = TestList [
+   test_parser,
+   test_unification
+ ]
+
+main = runTestTT tests
