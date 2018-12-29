@@ -1,17 +1,3 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Parser
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 module Prolog.Parser (
   sentence,
   clause,

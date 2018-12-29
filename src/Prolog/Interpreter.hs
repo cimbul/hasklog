@@ -1,17 +1,3 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Interpreter
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 module Prolog.Interpreter (
   interpret,
   program,

@@ -1,17 +1,3 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Compiler
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 {-# LANGUAGE FlexibleContexts #-}
 
 module Prolog.Compiler (

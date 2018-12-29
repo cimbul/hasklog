@@ -1,17 +1,3 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Data
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 {-# LANGUAGE FlexibleContexts #-}
 
 module Prolog.Data (
