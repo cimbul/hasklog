@@ -15,7 +15,7 @@ common prolog-common
         containers,
         base
 
-library prolog-lib
+library
     import: prolog-common
     hs-source-dirs: src
     exposed-modules:
@@ -27,12 +27,12 @@ library prolog-lib
 executable prolog
     import: prolog-common
     main-is: src/Main.hs
-    build-depends: prolog-lib
+    build-depends: prolog
 
 test-suite prolog-tests
     import: prolog-common
     type: exitcode-stdio-1.0
     main-is: src/Prolog/Test.hs
     build-depends:
-        prolog-lib,
+        prolog,
         HUnit
