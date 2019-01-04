@@ -2,6 +2,7 @@ module Prolog.Interpreter (
   interpret,
   program,
 
+  Unifier,
   resolve,
   unify,
 ) where
@@ -11,7 +12,6 @@ import Prolog.Data
 import Prolog.Parser
 import Prolog.Compiler
 
-import Control.Monad.List
 import Control.Monad.State
 import Control.Monad (foldM)
 import Control.Applicative ((<$>), (<*>))
@@ -23,13 +23,14 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
 import qualified Data.Set as S
+import List.Transformer (ListT, Step(..), runListT, next, empty, select)
 import Text.Parsec hiding (State)
 
 
 type Unifier = Map Identifier Term
 
 
-type Predicate m = [Term] -> InterpreterT m [([Term], Unifier)]
+type Predicate m = [Term] -> ListT (InterpreterT m) ([Term], Unifier)
 
 interpret p = evalStateT p initialState
 
@@ -61,21 +62,21 @@ builtins = M.fromList [
 --   program. Fail if any solutions are found; otherwise succeed.
 bnot :: (MonadIO m, Functor m) => Predicate m
 bnot [goal] =
-  do unifiers <- resolve (GoalClause [goal])
+  do unifiers <- lift $ next $ resolve (GoalClause [goal])
      case unifiers of
-       u:us -> bfail []
-       []   -> btrue []
+       Cons _ _ -> bfail []
+       Nil      -> btrue []
 
 -- | Cause unfication to fail immediately.
 bfail :: (MonadIO m) => Predicate m
-bfail [] = return []
+bfail [] = empty
 
 -- | Succeed without unifying anything or trigerring any further goals.
 --   Strictly speaking, this doesn't have to be a builtin (it could just be
 --   predefined as a fact), but having it as a function helps to write some
 --   other builtins (ones that normally succeed, for instance.)
 btrue :: (MonadIO m) => Predicate m
-btrue [] = return [([], M.empty)]
+btrue [] = return ([], M.empty)
 
 -- | Add a user-defined operator to the parser's operator table.
 boperator :: (MonadIO m, Functor m) => Predicate m
@@ -101,7 +102,7 @@ bconsult :: (MonadIO m, Functor m) => Predicate m
 bconsult [Atom filename] =
   do let filename' = filename ++ ".pl"
      contents <- liftIO $ readFile filename'
-     result <- consult program filename' contents
+     result <- lift $ consult program filename' contents
      case result of
        Left _  -> bfail []  -- TODO: Report error
        Right _ -> btrue []
@@ -112,7 +113,7 @@ bcompile [Atom filename] =
      let compiled = compileListing prog
      let filename' = filename ++ ".wam"
      liftIO $ writeFile filename' (concrete compiled)
-     btrue[]
+     btrue []
 
 
 
@@ -131,7 +132,7 @@ rule =
        -- Execute goal clauses and return the rest of the program
        GoalClause _ ->
          do prog <- gets listing
-            lift $ resolve c
+            lift $ runListT $ resolve c
             return Nothing
        -- Add definite clauses to the listing and return the clause followed by the
        -- rest of the program
@@ -148,16 +149,16 @@ rule =
 
 -- | Resolve the goal clause using the clauses in program. Return a list of all
 --   possible unifiers.
-resolve :: (MonadIO m, Functor m) => HornClause -> InterpreterT m [Unifier]
+resolve :: (MonadIO m, Functor m) => HornClause -> ListT (InterpreterT m) Unifier
 resolve (DefiniteClause _ _) = undefined
-resolve (GoalClause goals)   = runListT $ resolve' goalVars 0 goals M.empty
+resolve (GoalClause goals)   = resolve' goalVars 0 goals M.empty
 
   where
 
     resolve' :: (MonadIO m, Functor m) => Set Identifier -> Int -> [Term] -> Unifier -> ListT (InterpreterT m) Unifier
     resolve' roots prefix []        unifier = return unifier
     resolve' roots prefix (g:goals) unifier =
-      do (body, unifier') <- ListT $ predicate prefix g
+      do (body, unifier') <- predicate prefix g
          let goals'    = map (substituteAll unifier') (body ++ goals)
          let unifier'' = pruneUnifier roots (M.union unifier unifier')
          resolve' roots (prefix + 1) goals' unifier''
@@ -172,11 +173,14 @@ unifyClauses prefix goal (DefiniteClause head body) =
 
 -- | "Call" a predicate (possibly builtin) and return all possible (/unifier/,
 --   /body goal/) pairs.
-predicate :: (MonadIO m, Functor m) => Int -> Term -> InterpreterT m [([Term], Unifier)]
+predicate :: (MonadIO m, Functor m) => Int -> Term -> ListT (InterpreterT m) ([Term], Unifier)
 predicate prefix pred =
   case builtin pred of
     Just f  -> f (subterms pred)
-    Nothing -> mapMaybe (unifyClauses prefix pred) <$> gets (toList . listing)
+    Nothing -> do clauses <- gets (toList . listing)
+                  clause <- select clauses
+                  Just result <- return $ unifyClauses prefix pred clause
+                  return result
 
 
 -- | Anonymize all the variables in a term by mangling their names with an integer prefix.

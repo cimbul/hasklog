@@ -13,6 +13,7 @@ common prolog-common
         parsec >=3,
         mtl >=2,
         containers,
+        list-transformer,
         base
 
 library
