@@ -11,7 +11,7 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Writer hiding (Functor)
 import Control.Monad.State hiding (Functor)
 import Data.Foldable (toList)
-import Data.List (intersperse)
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Sequence (Seq, ViewL(..), (><))
@@ -37,7 +37,7 @@ compileListing listing = Program (map (uncurry compilePredicate) (M.toList predi
 
     listing' = map simplify listing
 
-    predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty $ listing'
+    predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty listing'
 
     ftor (DefiniteClause head body) = Functor (functor head) (arity head)
 
@@ -63,7 +63,7 @@ compileRules (first:rest) =
       do emit (RetryMeElse (Label (n + 1)))
          compileClause clause
     compileLast n clause =
-      do emit (TrustMe)
+      do emit TrustMe
          compileClause clause
 
 compileRule n instructions = Rule (Label n) (runCompiler instructions)
@@ -79,8 +79,8 @@ compileClause' perms head body =
   do emit (Allocate (S.size perms))
      compileArgs Get head
      compileCall`mapM` body
-     emit (Deallocate)
-     emit (Proceed)
+     emit Deallocate
+     emit Proceed
 
 emit inst = tell (Q.singleton inst)
 
@@ -155,7 +155,7 @@ sharedVars terms = mconcat sharedVars'
            then return (S.singleton v)
            else
              do modify (M.insert v termNo)
-                return (S.empty)
+                return S.empty
 
 
 data FlattenedTerm = FStructure Identifier Register [Register]
@@ -300,7 +300,7 @@ instance Syntax Program where
 
   describe = kind
 
-  concrete (Program predicates) = concat (intersperse "\n\n" (map concrete predicates))
+  concrete (Program predicates) = intercalate "\n\n" (map concrete predicates)
 
 
 instance Syntax Predicate where
@@ -340,15 +340,15 @@ instance Syntax WAM where
   concrete (UnifyVariable r) = delim ["unify_variable", concrete r]
   concrete (UnifyValue    r) = delim ["unify_value",    concrete r]
   concrete (Allocate n) = delim ["allocate", show n]
-  concrete (Deallocate) = "deallocate"
+  concrete Deallocate   = "deallocate"
   concrete (Call    f) = delim ["call",    concrete f]
   concrete (Execute f) = delim ["execute", concrete f]
-  concrete (Proceed)     = "proceed"
+  concrete Proceed     = "proceed"
   concrete (TryMeElse   l) = delim ["try_me_else",   concrete l]
   concrete (RetryMeElse l) = delim ["retry_me_else", concrete l]
-  concrete (TrustMe)       = "trust_me"
+  concrete TrustMe         = "trust_me"
 
-delim elems = concat $ intersperse "\t" elems
+delim = intercalate "\t"
 
 
 instance Syntax Label where

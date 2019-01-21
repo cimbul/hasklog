@@ -16,7 +16,8 @@ import Text.Parsec hiding (Empty, State, parse, parseTest)
 import Control.Monad (guard, when)
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
-import Data.List (intersperse)
+import Data.List (intercalate)
+import Data.Functor (($>))
 import Data.Functor.Identity
 import Data.Maybe
 import Data.Foldable (toList)
@@ -173,8 +174,8 @@ lexeme :: Monad m => PrologParser m a -> PrologParser m a
 lexeme p = p <* many layout
 
 layout :: Monad m => PrologParser m ()
-layout = space   *> return ()
-     <|> comment *> return ()
+layout = space $> ()
+     <|> comment $> ()
 
 comment :: Monad m => PrologParser m String
 comment = char '%' *> many commentChar <?> "comment"
@@ -192,10 +193,10 @@ operation maxPrec = toTerm <$> operatorTree maxPrec Empty
     toTerm (Node (Operand t)      _     _    ) = t
     toTerm (Node (Operator a def) ltree rtree) =
       case (ltree, rtree) of
-        (Node _ _ _, Node _ _ _) -> toCompound a [ltree, rtree]
-        (Node _ _ _, Empty     ) -> toCompound a [ltree]
-        (Empty     , Node _ _ _) -> toCompound a [rtree]
-        (Empty     , Empty     ) -> Atom a
+        (Node {}, Node {}) -> toCompound a [ltree, rtree]
+        (Node {}, Empty  ) -> toCompound a [ltree]
+        (Empty  , Node {}) -> toCompound a [rtree]
+        (Empty  , Empty  ) -> Atom a
 
     toCompound a subtrees = CompoundTerm a (map toTerm subtrees)
 
@@ -262,7 +263,7 @@ instance Syntax Term where
 
   concrete (CompoundTerm a subterms) = quoteAtom a ++ "(" ++ concreteSubterms ++ ")"
     where
-      concreteSubterms = concat (intersperse ", " (map concrete subterms))
+      concreteSubterms = intercalate ", " (map concrete subterms)
 
 
 quoteAtom a =
@@ -298,5 +299,5 @@ instance Syntax HornClause where
 
   concrete (DefiniteClause head body) = concrete head ++ " :- " ++ concreteBody
     where
-      concreteBody = concat (intersperse ", " (map concrete body))
-  concrete (GoalClause goals) = concat (intersperse ", " (map concrete goals))
+      concreteBody = intercalate ", " (map concrete body)
+  concrete (GoalClause goals) = intercalate ", " (map concrete goals)

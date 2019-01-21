@@ -15,7 +15,7 @@ import Prolog.Compiler
 import Control.Monad.State
 import Control.Monad (foldM)
 import Control.Applicative ((<$>), (<*>))
-import Data.Maybe (mapMaybe, catMaybes)
+import Data.Maybe (mapMaybe, catMaybes, fromMaybe)
 import Data.Foldable (toList)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Q
@@ -247,7 +247,7 @@ unify a b = unify' a b M.empty
             foldM substituteAndUnify unifier (zip ts ts')
           where
             substituteAndUnify unifier termPair =
-              (uncurry unify') (substituteAll unifier <$> termPair) unifier
+              uncurry unify' (substituteAll unifier <$> termPair) unifier
 
     -- Other terms unify iff they are identical
     unify' a b unifier
@@ -260,9 +260,7 @@ unify a b = unify' a b M.empty
 substituteAll :: Unifier -> Term -> Term
 
 substituteAll unification v@(Variable var) =
-  case M.lookup var unification of
-    Just sub -> sub
-    Nothing  -> v
+  fromMaybe v (M.lookup var unification)
 
 substituteAll unification (CompoundTerm f ts) =
   CompoundTerm f (map (substituteAll unification) ts)

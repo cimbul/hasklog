@@ -7,7 +7,7 @@ import Prolog.Data
 import Prolog.Parser
 import Prolog.Interpreter
 
-import Data.List (intersperse)
+import Data.List (intercalate)
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Applicative ((<$>))
@@ -43,7 +43,7 @@ readAndConsult file =
 
 interpreterSession :: [String] -> InterpreterT IO ()
 interpreterSession files =
-  do mapM readAndConsult files
+  do mapM_ readAndConsult files
      forever readEvalPrint
 
 
@@ -61,7 +61,7 @@ promptQuery = do input <- prompt "?- "
 --   user requests them (or until they are exhausted).
 readEvalPrint :: InterpreterT IO ()
 readEvalPrint =
-  do input <- lift $ promptQuery
+  do input <- lift promptQuery
      query <- check <$> consult clause "(user input)" input
      showResults =<< next (resolve query)
 
@@ -74,12 +74,11 @@ readEvalPrint =
     showResults (Cons u us)
       | M.null u = lift $ putStrLn "true."
       | otherwise =
-          do response <- lift $ prompt ((formatUnifier u) ++ " ? ")
-             if response == ";"
-               then do lift $ putStrLn ""
-                       showResults =<< next us
-               else return ()
+          do response <- lift $ prompt (formatUnifier u ++ " ? ")
+             when (response == ";") $
+               do lift $ putStrLn ""
+                  showResults =<< next us
 
-    formatUnifier u = concat (intersperse "\n" (map formatBinding (M.toList u)))
+    formatUnifier u = intercalate "\n" (map formatBinding (M.toList u))
       where
         formatBinding (var,val) = var ++ " = " ++ concrete val

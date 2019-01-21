@@ -182,6 +182,6 @@ rbp (Operator _ def) = rbp' def
     rbp' (OpDefinition _       _      prec) = prec
 
 
-findOperator fix a table = Operator a <$> (M.lookup (a, fix) table)
+findOperator fix a table = Operator a <$> M.lookup (a, fix) table
 
 insertOperator a def = M.insert (a, fixity def) def

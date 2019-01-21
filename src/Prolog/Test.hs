@@ -93,9 +93,7 @@ parseTermFailures = [
   ":- a :- b"
  ]
 
-test_parseTermFailure = TestList $ map (\input ->
-    TestCase $ assertParseError term input
-  ) parseTermFailures
+test_parseTermFailure = TestList $ map (TestCase . assertParseError term) parseTermFailures
 
 
 test_parser = TestList [
