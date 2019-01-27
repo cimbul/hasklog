@@ -2,7 +2,6 @@ module Main (
   main,
 ) where
 
-import Prolog.Compiler
 import Prolog.Data
 import Prolog.Parser
 import Prolog.Interpreter
@@ -11,24 +10,16 @@ import Data.List (intercalate)
 import Control.Monad
 import Control.Monad.Trans.Class
 import Control.Applicative ((<$>))
-import Text.ParserCombinators.Parsec (ParseError, SourceName)
+import Text.ParserCombinators.Parsec (ParseError)
 import qualified Data.Map as M
-import List.Transformer (ListT, Step(..), next)
+import List.Transformer (Step(..), next)
 import System.Environment
-import System.Exit
 import System.IO
 
 
 main =
   do args <- getArgs
      interpret $ interpreterSession args
-
--- | Print a usage message and exit.
-usage =
-  do name <- getProgName
-     let msg = "Usage: " ++ name ++ " [INPUT...]"
-     putStrLn msg
-     exitFailure
 
 
 check :: Either ParseError a -> a

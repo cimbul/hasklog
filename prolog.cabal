@@ -8,6 +8,7 @@ category: Language
 
 common prolog-common
     default-language: Haskell2010
+    ghc-options: -Wall -Wno-missing-signatures -Wno-name-shadowing -Wno-incomplete-patterns -Wno-orphans
     build-depends:
         transformers,
         parsec >=3,

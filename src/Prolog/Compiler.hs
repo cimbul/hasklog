@@ -39,7 +39,7 @@ compileListing listing = Program (map (uncurry compilePredicate) (M.toList predi
 
     predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty listing'
 
-    ftor (DefiniteClause head body) = Functor (functor head) (arity head)
+    ftor (DefiniteClause head _) = Functor (functor head) (arity head)
 
 
 -- | Compile a predicate into a sequence of WAM instructions.
@@ -53,7 +53,7 @@ compileRules (first:rest) =
 
   where
 
-    compileRest n [last]      = [compileLast n last]
+    compileRest _ [last]      = [compileLast last]
     compileRest n (next:rest) = compileMiddle n next : compileRest (n + 1) rest
 
     compileFirst clause =
@@ -62,7 +62,7 @@ compileRules (first:rest) =
     compileMiddle n clause =
       do emit (RetryMeElse (Label (n + 1)))
          compileClause clause
-    compileLast n clause =
+    compileLast clause =
       do emit TrustMe
          compileClause clause
 
@@ -78,7 +78,7 @@ compileClause (DefiniteClause head body) =
 compileClause' perms head body =
   do emit (Allocate (S.size perms))
      compileArgs Get head
-     compileCall`mapM` body
+     compileCall `mapM_` body
      emit Deallocate
      emit Proceed
 
@@ -147,7 +147,7 @@ sharedVars terms = mconcat sharedVars'
     -- The state here maps a variable to the first top-level term in the rule
     -- where it was encountered.
     checkShared :: Int -> Term -> State VariableMap VariableSet
-    checkShared termNo (CompoundTerm f subterms) =
+    checkShared termNo (CompoundTerm _ subterms) =
       mconcat <$> mapM (checkShared termNo) subterms
     checkShared termNo (Variable v) =
       do firstEncountered <- gets (M.findWithDefault termNo v)
@@ -166,7 +166,7 @@ flatten Put = flattenPut
 flattenPut :: TaggedTerm -> [FlattenedTerm]
 flattenPut = reverse . flattenPut'
   where
-    flattenPut' (TVariable v)             = []
+    flattenPut' (TVariable _)             = []
     flattenPut' (TStructure f n subterms) =
       FStructure f n (map tag subterms) : concatMap flattenPut' subterms
 
@@ -179,7 +179,7 @@ flattenGet t = flattenGet' (Q.singleton t)
         EmptyL        -> []
         first :< rest ->
           case first of
-            TVariable n             -> flattenGet' rest
+            TVariable _             -> flattenGet' rest
             TStructure f n subterms ->
               FStructure f n (map tag subterms) : flattenGet' (rest >< Q.fromList subterms)
 
@@ -214,11 +214,11 @@ allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
     register = Register (-1)
 
     args' = evalStateT args'' (reserveArgs (length args))
-    args'' = zipWithM (allocateArg perms) [1..] args
+    args'' = mapM (allocateArg perms) args
 
 
-allocateArg perms n (Variable v)              = TVariable <$> allocateVar perms v
-allocateArg perms n (CompoundTerm f subterms) = TStructure f register <$> subterms'
+allocateArg perms (Variable v)              = TVariable <$> allocateVar perms v
+allocateArg perms (CompoundTerm f subterms) = TStructure f register <$> subterms'
   where
     register :: Register
     register = Register (-1)

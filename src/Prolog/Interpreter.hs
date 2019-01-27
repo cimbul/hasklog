@@ -14,11 +14,9 @@ import Prolog.Compiler
 
 import Control.Monad.State
 import Control.Monad (foldM)
-import Control.Applicative ((<$>), (<*>))
-import Data.Maybe (mapMaybe, catMaybes, fromMaybe)
+import Control.Applicative ((<$>))
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Foldable (toList)
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Q
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
@@ -131,8 +129,7 @@ rule =
      case c of
        -- Execute goal clauses and return the rest of the program
        GoalClause _ ->
-         do prog <- gets listing
-            lift $ runListT $ resolve c
+         do lift $ runListT $ resolve c
             return Nothing
        -- Add definite clauses to the listing and return the clause followed by the
        -- rest of the program
@@ -156,7 +153,7 @@ resolve (GoalClause goals)   = resolve' goalVars 0 goals M.empty
   where
 
     resolve' :: (MonadIO m, Functor m) => Set Identifier -> Int -> [Term] -> Unifier -> ListT (InterpreterT m) Unifier
-    resolve' roots prefix []        unifier = return unifier
+    resolve' _     _      []        unifier = return unifier
     resolve' roots prefix (g:goals) unifier =
       do (body, unifier') <- predicate prefix g
          let goals'    = map (substituteAll unifier') (body ++ goals)
@@ -196,7 +193,7 @@ pruneUnifier :: Set Identifier -> Unifier -> Unifier
 pruneUnifier roots unifier =
     M.map (substituteAll unifier) $ M.filterWithKey isRoot unifier
   where
-    isRoot var val = S.member var roots
+    isRoot var _ = S.member var roots
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.
@@ -205,7 +202,7 @@ pruneUnifier roots unifier =
 occurs :: Term -> Term -> Bool
 occurs (Variable var) (Variable var')       = var == var'
 occurs (Variable var) (CompoundTerm _ args) = any (occurs (Variable var)) args
-occurs (Variable var) _                     = False
+occurs (Variable _  ) _                     = False
 occurs _              _                     = undefined
 
 
@@ -235,12 +232,12 @@ unify a b = unify' a b M.empty
                in Just (M.insert var b unifier')
 
     -- Flip the direction if b is a variable but a is not.
-    unify' a b@(Variable var) unifier =
+    unify' a b@(Variable _) unifier =
       unify' b a unifier
 
     -- Compound terms unify with each other iff their functors and arities are
     -- identical and their subterms unify *simultaneously.*
-    unify' a@(CompoundTerm f ts) b@(CompoundTerm f' ts') unifier
+    unify' (CompoundTerm f ts) (CompoundTerm f' ts') unifier
       | f /= f'                 = Nothing
       | length ts /= length ts' = Nothing
       | otherwise =
@@ -265,20 +262,20 @@ substituteAll unification v@(Variable var) =
 substituteAll unification (CompoundTerm f ts) =
   CompoundTerm f (map (substituteAll unification) ts)
 
-substituteAll unification t = t
+substituteAll _ t = t
 
 
 -- | Substitute each occurance of the first term (a variable) by the second term
 --   in the subject (third) term.
 substitute :: Term -> Term -> Term -> Term
 
-substitute v@(Variable var) replacement orig@(Variable var')
+substitute (Variable var) replacement orig@(Variable var')
   | var == var' = replacement
   | otherwise   = orig
 
-substitute v@(Variable var) replacement orig@(CompoundTerm f params) =
+substitute v@(Variable _) replacement (CompoundTerm f params) =
   CompoundTerm f (map (substitute v replacement) params)
 
-substitute v@(Variable var) _ orig = orig
-substitute _                _ _    = undefined
+substitute (Variable _) _ orig = orig
+substitute _            _ _    = undefined
 

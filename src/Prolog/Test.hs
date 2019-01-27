@@ -6,7 +6,6 @@ import Prolog.Data
 import Prolog.Parser
 import Prolog.Interpreter
 
-import Data.Map (Map)
 import qualified Data.Map as M
 
 import Test.HUnit

@@ -19,12 +19,6 @@ import Control.Applicative ((<$>), (<*>), (<*), (*>))
 import Data.List (intercalate)
 import Data.Functor (($>))
 import Data.Functor.Identity
-import Data.Maybe
-import Data.Foldable (toList)
-import Data.Map (Map)
-import qualified Data.Map as M
-import Data.Sequence (Seq, (|>))
-import qualified Data.Sequence as S
 
 
 type PrologParser m = ParsecT String () (InterpreterT m)
@@ -126,9 +120,6 @@ rawVariable = (:) <$> variableStart <*> many variableChar
     variableStart = upper
     variableChar  = alphaNum <|> char '_' <?> "rest of variable"
 
-atom :: Monad m => PrologParser m String
-atom = lexeme rawAtom
-
 nonFunctorAtom :: Monad m => PrologParser m String
 nonFunctorAtom = lexeme (rawAtom <* notFollowedBy (symbol "("))
 
@@ -190,8 +181,8 @@ operation maxPrec = toTerm <$> operatorTree maxPrec Empty
 
   where
 
-    toTerm (Node (Operand t)      _     _    ) = t
-    toTerm (Node (Operator a def) ltree rtree) =
+    toTerm (Node (Operand t)    _     _    ) = t
+    toTerm (Node (Operator a _) ltree rtree) =
       case (ltree, rtree) of
         (Node {}, Node {}) -> toCompound a [ltree, rtree]
         (Node {}, Empty  ) -> toCompound a [ltree]
