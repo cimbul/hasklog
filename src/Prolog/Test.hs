@@ -6,11 +6,13 @@ import Prolog.Data
 import Prolog.Parser
 import Prolog.Interpreter
 
+import Data.Functor.Identity
 import qualified Data.Map as M
 
 import Test.HUnit
 
 
+p :: String -> Term
 p input =
   case parseTest term input of
     Left _     -> error ("Could not parse \"" ++ input ++ "\"")
@@ -20,6 +22,7 @@ p input =
 -- Parser
 
 
+assertParseError :: Show a => PrologParser Identity a -> String -> IO ()
 assertParseError parser input =
   case parseTest parser input of
     Left _       -> return ()
@@ -28,6 +31,7 @@ assertParseError parser input =
     msg actual = input ++ "\n" ++
                "expected parse error\n but got: " ++ show actual
 
+assertParse :: (Eq a, Show a) => PrologParser Identity a -> String -> a -> IO ()
 assertParse parser input expected =
   case parseTest parser input of
     Left error   -> assertFailure (parseErrorMsg error)
@@ -37,6 +41,7 @@ assertParse parser input expected =
                           "\n but got parse error:\n " ++ show error
 
 
+parseTermResults :: [(String, Term)]
 parseTermResults = [
   -- Basic terms
   ("abc",        Atom "abc"),
@@ -80,11 +85,13 @@ parseTermResults = [
   ("(a :- b), c",  CompoundTerm "," [CompoundTerm ":-" [Atom "a", Atom "b"], Atom "c"])
  ]
 
+test_parseTerm :: Test
 test_parseTerm = TestList $ map (\(input, expected) ->
     TestCase $ assertParse term input expected
   ) parseTermResults
 
 
+parseTermFailures :: [String]
 parseTermFailures = [
   "a b",
   "123abc",
@@ -92,9 +99,11 @@ parseTermFailures = [
   ":- a :- b"
  ]
 
+test_parseTermFailure :: Test
 test_parseTermFailure = TestList $ map (TestCase . assertParseError term) parseTermFailures
 
 
+test_parser :: Test
 test_parser = TestList [
   test_parseTerm,
   test_parseTermFailure
@@ -105,6 +114,7 @@ test_parser = TestList [
 
 -- Unification
 
+unifySuccesses :: [(String, String, [(String, String)])]
 unifySuccesses = [
   ("a", "a", []),
   ("X", "a", [("X", "a")]),
@@ -121,6 +131,7 @@ unifySuccesses = [
   ("f(X, X)",    "f(a, a)", [("X", "a")])
  ]
 
+test_unifySuccesses :: Test
 test_unifySuccesses = TestList $ map unifySuccessTestCase unifySuccesses
 
   where
@@ -132,6 +143,7 @@ test_unifySuccesses = TestList $ map unifySuccessTestCase unifySuccesses
         parsedResults = map (\(var, val) -> (var, p val)) results
 
 
+unifyFailures :: [(String, String)]
 unifyFailures = [
   ("a",       "b"),      -- Unequal constants
   ("f(a)",    "g(a)"),   -- Unequal functors
@@ -140,6 +152,7 @@ unifyFailures = [
   ("f(X, X)", "f(a, b)") -- Double unification to unequal constants
  ]
 
+test_unifyFailures :: Test
 test_unifyFailures = TestList $ map unifyFailureTestCase unifyFailures
 
   where
@@ -150,15 +163,18 @@ test_unifyFailures = TestList $ map unifyFailureTestCase unifyFailures
         label = a ++ " == " ++ b
 
 
+test_unification :: Test
 test_unification = TestList [
    test_unifySuccesses,
    test_unifyFailures
  ]
 
 
+tests :: Test
 tests = TestList [
    test_parser,
    test_unification
  ]
 
+main :: IO Counts
 main = runTestTT tests

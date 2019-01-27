@@ -30,6 +30,7 @@ type Unifier = Map Identifier Term
 
 type Predicate m = [Term] -> ListT (InterpreterT m) ([Term], Unifier)
 
+interpret :: Monad m => InterpreterT m a -> m a
 interpret p = evalStateT p initialState
 
 
@@ -162,6 +163,7 @@ resolve (GoalClause goals)   = resolve' goalVars 0 goals M.empty
 
     goalVars = S.unions $ map variables goals
 
+unifyClauses :: Int -> Term -> HornClause -> Maybe ([Term], Unifier)
 unifyClauses prefix goal (DefiniteClause head body) =
   do let head' = renameVars prefix head
      let body' = renameVars prefix `map` body
@@ -278,4 +280,3 @@ substitute v@(Variable _) replacement (CompoundTerm f params) =
 
 substitute (Variable _) _ orig = orig
 substitute _            _ _    = undefined
-

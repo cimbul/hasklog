@@ -11,6 +11,7 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Writer hiding (Functor)
 import Control.Monad.State hiding (Functor)
 import Data.Foldable (toList)
+import Data.Functor.Identity (Identity)
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
@@ -20,11 +21,14 @@ import Data.Set (Set)
 import qualified Data.Set as S
 
 
+runCompiler :: Writer (Seq WAM) a -> [WAM]
 runCompiler = toList . execWriter
 
 
+simplify :: HornClause -> HornClause
 simplify (DefiniteClause head body) = DefiniteClause (simplifyAtoms head) (map simplifyAtoms body)
 
+simplifyAtoms :: Term -> Term
 simplifyAtoms (Atom a)            = CompoundTerm a []
 simplifyAtoms (CompoundTerm f ts) = CompoundTerm f (map simplifyAtoms ts)
 simplifyAtoms t                   = t
@@ -66,22 +70,24 @@ compileRules (first:rest) =
       do emit TrustMe
          compileClause clause
 
+compileRule :: Int -> Writer (Seq WAM) a -> Rule
 compileRule n instructions = Rule (Label n) (runCompiler instructions)
 
 -- | Compile a rule into a sequence of WAM instructions.
 compileClause :: HornClause -> Writer (Seq WAM) ()
 compileClause (DefiniteClause head body) =
-  let perms = sharedVars (head:body)
+  evalStateT (compileClause' perms thead tbody) emptyRegisterSet
+    where
+      perms = sharedVars (head:body)
       (thead, tbody) = allocateClause perms head body
-   in evalStateT (compileClause' perms thead tbody) emptyRegisterSet
+      compileClause' perms head body =
+        do emit (Allocate (S.size perms))
+           compileArgs Get head
+           compileCall `mapM_` body
+           emit Deallocate
+           emit Proceed
 
-compileClause' perms head body =
-  do emit (Allocate (S.size perms))
-     compileArgs Get head
-     compileCall `mapM_` body
-     emit Deallocate
-     emit Proceed
-
+emit :: MonadWriter (Seq a) m => a -> m ()
 emit inst = tell (Q.singleton inst)
 
 
@@ -89,6 +95,7 @@ data Mode = Get | Put deriving (Eq, Ord, Show)
 
 type RegisterSet = Set Register
 
+emptyRegisterSet :: RegisterSet
 emptyRegisterSet = S.empty
 
 -- | Compile the arguments of a toplevel term in a clause.
@@ -107,6 +114,7 @@ compileArg mode n (TStructure f _ subterms) =
       flattened = flatten mode (TStructure f (Register n) subterms)
    in compileStruct mode `mapM_` flattened
 
+compileStruct :: Mode -> FlattenedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileStruct mode (FStructure f reg subtermRegs) =
   do modify (S.insert reg)
      let functor = Functor f (length subtermRegs)
@@ -115,8 +123,10 @@ compileStruct mode (FStructure f reg subtermRegs) =
        Put -> emit (PutStructure functor reg)
      compileUnify `mapM_` subtermRegs
 
+compileUnify :: Register -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileUnify reg = ifEncountered reg (UnifyValue reg) (UnifyVariable reg)
 
+ifEncountered :: Register -> WAM -> WAM -> StateT RegisterSet (Writer (Seq WAM)) ()
 ifEncountered reg t f =
   do encountered <- gets (S.member reg)
      if encountered
@@ -125,6 +135,7 @@ ifEncountered reg t f =
          do modify (S.insert reg)
             emit f
 
+compileCall :: TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileCall t@(TStructure f _ args) =
   do compileArgs Put t
      emit (Call (Functor f (length args)))
@@ -160,6 +171,7 @@ sharedVars terms = mconcat sharedVars'
 
 data FlattenedTerm = FStructure Identifier Register [Register]
 
+flatten :: Mode -> TaggedTerm -> [FlattenedTerm]
 flatten Get = flattenGet
 flatten Put = flattenPut
 
@@ -198,13 +210,19 @@ data Allocation = Allocation {
                   }
                 deriving (Eq, Ord, Show)
 
+emptyAllocation :: Allocation
 emptyAllocation = Allocation 1 M.empty
+
+reserveArgs :: Int -> Allocation
 reserveArgs n   = Allocation (n+1) M.empty
 
+allocateClause :: Traversable t => Set Identifier -> Term -> t Term -> (TaggedTerm, t TaggedTerm)
 allocateClause  perms head body = evalState (allocateClause' perms head body) emptyAllocation
-allocateClause' perms head body =
-   (,) <$> allocateTop perms head <*> mapM (allocateTop perms) body
+  where
+    allocateClause' perms head body =
+      (,) <$> allocateTop perms head <*> mapM (allocateTop perms) body
 
+allocateTop :: Set Identifier -> Term -> StateT Allocation Identity TaggedTerm
 allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
   where
     -- This register is a dummy value. The toplevel structure does not actually
@@ -217,6 +235,7 @@ allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
     args'' = mapM (allocateArg perms) args
 
 
+allocateArg :: VariableSet -> Term -> StateT Allocation (State Allocation) TaggedTerm
 allocateArg perms (Variable v)              = TVariable <$> allocateVar perms v
 allocateArg perms (CompoundTerm f subterms) = TStructure f register <$> subterms'
   where
@@ -348,6 +367,7 @@ instance Syntax WAM where
   concrete (RetryMeElse l) = delim ["retry_me_else", concrete l]
   concrete TrustMe         = "trust_me"
 
+delim :: [String] -> String
 delim = intercalate "\t"
 
 

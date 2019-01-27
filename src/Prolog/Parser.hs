@@ -27,6 +27,7 @@ type PrologParser m = ParsecT String () (InterpreterT m)
 consult :: (Monad m) => PrologParser m a -> SourceName -> String -> InterpreterT m (Either ParseError a)
 consult p = runParserT (many layout *> p <* eof) ()
 
+parseTest :: PrologParser Identity a -> String -> Either ParseError a
 parseTest p input = runIdentity $ parse p "" input
 
 parse :: (Monad m) => PrologParser m a -> SourceName -> String -> m (Either ParseError a)
@@ -156,11 +157,16 @@ reservedSymbol = symbol ","
 
 parens   :: Monad m => PrologParser m a -> PrologParser m a
 parens   p = lexeme $ between (symbol "(") (symbol ")") p
+
 brackets :: Monad m => PrologParser m a -> PrologParser m a
 brackets p = lexeme $ between (symbol "[") (symbol "]") p
-quotes q p = lexeme $ between (char q)     (char q)     p
 
+quotes :: Monad m => Char -> PrologParser m a -> PrologParser m a
+quotes q p = lexeme $ between (char q) (char q) p
+
+symbol :: Monad m => String -> PrologParser m String
 symbol s = lexeme $ string s
+
 lexeme :: Monad m => PrologParser m a -> PrologParser m a
 lexeme p = p <* many layout
 
@@ -257,11 +263,13 @@ instance Syntax Term where
       concreteSubterms = intercalate ", " (map concrete subterms)
 
 
+quoteAtom :: String -> String
 quoteAtom a =
   if needsQuotes a
     then "'" ++ a ++ "'"
     else a
 
+needsQuotes :: String -> Bool
 needsQuotes a =
   case parseTest (unquotedAtom <|> symbolicAtom) a of
     Left  _ -> True
@@ -277,6 +285,7 @@ instance Syntax Operand where
   concrete (Operand  t)   = concrete t
   concrete (Operator a _) = concrete (Atom a)
 
+describeFixity :: Fixity -> String
 describeFixity Infix   = "infix"
 describeFixity Prefix  = "prefix"
 describeFixity Postfix = "postfix"
