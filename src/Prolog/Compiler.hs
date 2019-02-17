@@ -15,23 +15,33 @@ import Data.Functor.Identity (Identity)
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Maybe
 import Data.Sequence (Seq, ViewL(..), (><))
 import qualified Data.Sequence as Q
 import Data.Set (Set)
 import qualified Data.Set as S
 
 
+data SimpleTerm = SVariable Identifier
+                | SCompoundTerm Identifier [SimpleTerm]
+                deriving (Eq, Ord, Show)
+
+data SimpleClause = SDefiniteClause SimpleTerm [SimpleTerm]
+
+
 runCompiler :: Writer (Seq WAM) a -> [WAM]
 runCompiler = toList . execWriter
 
 
-simplify :: HornClause -> HornClause
-simplify (DefiniteClause head body) = DefiniteClause (simplifyAtoms head) (map simplifyAtoms body)
+simplify :: HornClause -> Maybe SimpleClause
+simplify (DefiniteClause head body) = Just (SDefiniteClause (simplifyAtoms head) (map simplifyAtoms body))
+simplify (GoalClause _)             = Nothing
 
-simplifyAtoms :: Term -> Term
-simplifyAtoms (Atom a)            = CompoundTerm a []
-simplifyAtoms (CompoundTerm f ts) = CompoundTerm f (map simplifyAtoms ts)
-simplifyAtoms t                   = t
+simplifyAtoms :: Term -> SimpleTerm
+simplifyAtoms (Atom a)            = SCompoundTerm a []
+simplifyAtoms (CompoundTerm f ts) = SCompoundTerm f (map simplifyAtoms ts)
+simplifyAtoms (Number a)          = SCompoundTerm (show a) []
+simplifyAtoms (Variable v)        = SVariable v
 
 
 compileListing :: [HornClause] -> Program
@@ -39,24 +49,27 @@ compileListing listing = Program (map (uncurry compilePredicate) (M.toList predi
 
   where
 
-    listing' = map simplify listing
+    listing' = mapMaybe simplify listing
 
     predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty listing'
 
-    ftor (DefiniteClause head _) = Functor (functor head) (arity head)
+    ftor (SDefiniteClause (SCompoundTerm f ts) _) = Functor f (length ts)
+    ftor _ = undefined
 
 
 -- | Compile a predicate into a sequence of WAM instructions.
-compilePredicate :: Functor -> [HornClause] -> Predicate
+compilePredicate :: Functor -> [SimpleClause] -> Predicate
 compilePredicate f clauses = Predicate f (compileRules clauses)
 
-compileRules :: [HornClause] -> [Rule]
+compileRules :: [SimpleClause] -> [Rule]
+compileRules []           = []
 compileRules [singleton]  = [compileRule 0 (compileClause singleton)]
 compileRules (first:rest) =
     zipWith compileRule [0..] $ compileFirst first : compileRest 1 rest
 
   where
 
+    compileRest _ []          = undefined -- impossible
     compileRest _ [last]      = [compileLast last]
     compileRest n (next:rest) = compileMiddle n next : compileRest (n + 1) rest
 
@@ -74,8 +87,8 @@ compileRule :: Int -> Writer (Seq WAM) a -> Rule
 compileRule n instructions = Rule (Label n) (runCompiler instructions)
 
 -- | Compile a rule into a sequence of WAM instructions.
-compileClause :: HornClause -> Writer (Seq WAM) ()
-compileClause (DefiniteClause head body) =
+compileClause :: SimpleClause -> Writer (Seq WAM) ()
+compileClause (SDefiniteClause head body) =
   evalStateT (compileClause' perms thead tbody) emptyRegisterSet
     where
       perms = sharedVars (head:body)
@@ -101,6 +114,7 @@ emptyRegisterSet = S.empty
 -- | Compile the arguments of a toplevel term in a clause.
 compileArgs :: Mode -> TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileArgs mode (TStructure _ _ args) = zipWithM_ (compileArg mode) [1..] args
+compileArgs _    _                     = undefined -- TODO: clause heads should always be structures
 
 compileArg :: Mode -> Int -> TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileArg mode n (TVariable reg) =
@@ -139,6 +153,7 @@ compileCall :: TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileCall t@(TStructure f _ args) =
   do compileArgs Put t
      emit (Call (Functor f (length args)))
+compileCall _ = undefined
 
 
 type VariableMap = Map Identifier Int
@@ -147,7 +162,7 @@ type VariableSet = Set Identifier
 -- NOTE: This skips the optimization that variables that occur only in the head
 --   and the _first_ rule can be considered permanent. The special case didn't
 --   seem worth the extra complication.
-sharedVars :: [Term] -> VariableSet
+sharedVars :: [SimpleTerm] -> VariableSet
 sharedVars terms = mconcat sharedVars'
 
   where
@@ -157,10 +172,10 @@ sharedVars terms = mconcat sharedVars'
 
     -- The state here maps a variable to the first top-level term in the rule
     -- where it was encountered.
-    checkShared :: Int -> Term -> State VariableMap VariableSet
-    checkShared termNo (CompoundTerm _ subterms) =
+    checkShared :: Int -> SimpleTerm -> State VariableMap VariableSet
+    checkShared termNo (SCompoundTerm _ subterms) =
       mconcat <$> mapM (checkShared termNo) subterms
-    checkShared termNo (Variable v) =
+    checkShared termNo (SVariable v) =
       do firstEncountered <- gets (M.findWithDefault termNo v)
          if firstEncountered /= termNo
            then return (S.singleton v)
@@ -216,14 +231,14 @@ emptyAllocation = Allocation 1 M.empty
 reserveArgs :: Int -> Allocation
 reserveArgs n   = Allocation (n+1) M.empty
 
-allocateClause :: Traversable t => Set Identifier -> Term -> t Term -> (TaggedTerm, t TaggedTerm)
+allocateClause :: Traversable t => Set Identifier -> SimpleTerm -> t SimpleTerm -> (TaggedTerm, t TaggedTerm)
 allocateClause  perms head body = evalState (allocateClause' perms head body) emptyAllocation
   where
     allocateClause' perms head body =
       (,) <$> allocateTop perms head <*> mapM (allocateTop perms) body
 
-allocateTop :: Set Identifier -> Term -> StateT Allocation Identity TaggedTerm
-allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
+allocateTop :: Set Identifier -> SimpleTerm -> StateT Allocation Identity TaggedTerm
+allocateTop perms (SCompoundTerm f args) = TStructure f register <$> args'
   where
     -- This register is a dummy value. The toplevel structure does not actually
     -- show up in data movement instructions (it only has to do with the predicate
@@ -233,20 +248,21 @@ allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
 
     args' = evalStateT args'' (reserveArgs (length args))
     args'' = mapM (allocateArg perms) args
+allocateTop _ _ = undefined
 
 
-allocateArg :: VariableSet -> Term -> StateT Allocation (State Allocation) TaggedTerm
-allocateArg perms (Variable v)              = TVariable <$> allocateVar perms v
-allocateArg perms (CompoundTerm f subterms) = TStructure f register <$> subterms'
+allocateArg :: VariableSet -> SimpleTerm -> StateT Allocation (State Allocation) TaggedTerm
+allocateArg perms (SVariable v)              = TVariable <$> allocateVar perms v
+allocateArg perms (SCompoundTerm f subterms) = TStructure f register <$> subterms'
   where
     register :: Register
     register = Register (-1)
     subterms' = mapM (allocate perms) subterms
 
 
-allocate :: VariableSet -> Term -> StateT Allocation (State Allocation) TaggedTerm
-allocate perms (Variable v)              = TVariable <$> allocateVar perms v
-allocate perms (CompoundTerm f subterms) = TStructure f <$> register <*> subterms'
+allocate :: VariableSet -> SimpleTerm -> StateT Allocation (State Allocation) TaggedTerm
+allocate perms (SVariable v)              = TVariable <$> allocateVar perms v
+allocate perms (SCompoundTerm f subterms) = TStructure f <$> register <*> subterms'
   where
     register = do Allocation next vars <- get
                   put (Allocation (next + 1) vars)

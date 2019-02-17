@@ -65,26 +65,25 @@ bnot [goal] =
      case unifiers of
        Cons _ _ -> bfail []
        Nil      -> btrue []
+bnot _ = bfail []
 
 -- | Cause unfication to fail immediately.
 bfail :: (MonadIO m) => Predicate m
-bfail [] = empty
+bfail _ = empty
 
 -- | Succeed without unifying anything or trigerring any further goals.
 --   Strictly speaking, this doesn't have to be a builtin (it could just be
 --   predefined as a fact), but having it as a function helps to write some
 --   other builtins (ones that normally succeed, for instance.)
 btrue :: (MonadIO m) => Predicate m
-btrue [] = return ([], M.empty)
+btrue _ = return ([], M.empty)
 
 -- | Add a user-defined operator to the parser's operator table.
 boperator :: (MonadIO m, Functor m) => Predicate m
 boperator [Number prec, Atom opType, Atom name] =
   do updateOpTable $ insertOperator name (opDef opType prec)
      btrue []
-
   where
-
     -- | Extract the fixity and associativity of an operator from a Prolog
     --   "operator type" atom ("fx", "xfy", etc.).
     opDef :: Identifier -> Integer -> OpDefinition
@@ -96,6 +95,7 @@ boperator [Number prec, Atom opType, Atom name] =
     opDef "xf"  = OpDefinition Postfix NonA
     opDef "yf"  = OpDefinition Postfix LeftA
     opDef _     = undefined
+boperator _ = bfail []
 
 bconsult :: (MonadIO m, Functor m) => Predicate m
 bconsult [Atom filename] =
@@ -105,6 +105,7 @@ bconsult [Atom filename] =
      case result of
        Left _  -> bfail []  -- TODO: Report error
        Right _ -> btrue []
+bconsult _ = bfail []
 
 bcompile :: (MonadIO m, Functor m) => Predicate m
 bcompile [Atom filename] =
@@ -113,6 +114,7 @@ bcompile [Atom filename] =
      let filename' = filename ++ ".wam"
      liftIO $ writeFile filename' (concrete compiled)
      btrue []
+bcompile _ = bfail []
 
 
 
@@ -164,6 +166,7 @@ resolve (GoalClause goals)   = resolve' goalVars 0 goals M.empty
     goalVars = S.unions $ map variables goals
 
 unifyClauses :: Int -> Term -> HornClause -> Maybe ([Term], Unifier)
+unifyClauses _      _    (GoalClause _)             = Nothing
 unifyClauses prefix goal (DefiniteClause head body) =
   do let head' = renameVars prefix head
      let body' = renameVars prefix `map` body

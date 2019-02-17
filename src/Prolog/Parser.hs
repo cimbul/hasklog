@@ -87,7 +87,6 @@ list = emptyList
 
   where
 
-
     listContents = listTerm <$> argument <*> rest
 
     rest = nextItem
@@ -187,6 +186,7 @@ operation maxPrec = toTerm <$> operatorTree maxPrec Empty
 
   where
 
+    toTerm Empty                             = undefined
     toTerm (Node (Operand t)    _     _    ) = t
     toTerm (Node (Operator a _) ltree rtree) =
       case (ltree, rtree) of
