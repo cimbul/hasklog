@@ -34,7 +34,11 @@ executable prolog
 test-suite prolog-tests
     import: prolog-common
     type: exitcode-stdio-1.0
-    main-is: src/Prolog/Test.hs
+    hs-source-dirs: test
+    main-is: Main.hs
+    other-modules:
+        Prolog.ParserSpec
+        Prolog.InterpreterSpec
     build-depends:
         prolog,
-        HUnit
+        hspec
