@@ -76,14 +76,14 @@ Examples
 --------
 
 The following sections contain example sessions using the files provided
-in the ``test/`` directory.
+in the ``examples/`` directory.
 
 Family Tree Database
 ~~~~~~~~~~~~~~~~~~~~
 
 .. code:: prolog
 
-   ?- consult('test/family_trees').
+   ?- consult('examples/family_trees').
    true.
    ?- parent_child(bill, ted).
    true.
@@ -126,7 +126,7 @@ List Processing
 
 .. code:: prolog
 
-   ?- consult('test/lists').
+   ?- consult('examples/lists').
    true.
    ?- member(What, [a,b,c]).
    What = a ? ;
@@ -155,20 +155,20 @@ Compiling
 
 .. code:: prolog
 
-   ?- consult('test/lists').
+   ?- consult('examples/lists').
    true.
-   ?- consult('test/family_trees').
+   ?- consult('examples/family_trees').
    true.
-   ?- consult('test/crazy_structures').
+   ?- consult('examples/crazy_structures').
    true.
-   ?- compile('test/everything').
+   ?- compile('examples/everything').
    true.
    ?- ^D
 
 At the end of this session, there should be a file named
-``everything.wam`` in the ``test/`` directory. It will contain WAM
+``everything.wam`` in the ``examples/`` directory. It will contain WAM
 instructions in text format for all the predicates defined in all three
-test files.
+examples files.
 
 Tests
 -----
