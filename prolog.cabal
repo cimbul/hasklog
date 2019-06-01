@@ -1,53 +1,44 @@
+cabal-version: 2.2
 name: prolog
 version: 0.0.1
-cabal-version: -any
-build-type: Simple
-license: AllRightsReserved
-license-file: ""
-copyright:
-maintainer:
-build-depends: transformers -any, parsec >=3, mtl >=2,
-               containers -any, base -any
-stability:
-homepage:
-package-url:
-bug-reports:
-synopsis: Prolog
-description: A (pure) Prolog interpreter written in Haskell.
-category:
-author:
-tested-with:
-data-files:
-data-dir: ""
-extra-source-files:
-extra-tmp-files:
- 
-executable: prolog
-main-is: Main.hs
-buildable: True
-build-tools:
-cpp-options:
-cc-options:
-ld-options:
-pkgconfig-depends:
-frameworks:
-c-sources:
-default-language:
-other-languages:
-default-extensions:
-other-extensions:
-extensions:
-extra-libraries:
-extra-lib-dirs:
-includes:
-install-includes:
-include-dirs:
-hs-source-dirs: src
-other-modules: Prolog.Test Prolog.Compiler Prolog.Data
-               Prolog.Interpreter Prolog.Parser
-ghc-prof-options:
-ghc-shared-options:
-ghc-options:
-hugs-options:
-nhc98-options:
-jhc-options:
+synopsis: A toy Prolog interpreter written in Haskell
+author: Tim Yates
+license: NONE
+category: Language
+
+common prolog-common
+    default-language: Haskell2010
+    ghc-options: -Wall -Wno-name-shadowing -Wno-orphans
+    build-depends:
+        transformers,
+        parsec >=3,
+        mtl >=2,
+        containers,
+        list-transformer,
+        base
+
+library
+    import: prolog-common
+    hs-source-dirs: src
+    exposed-modules:
+        Prolog.Compiler
+        Prolog.Data
+        Prolog.Interpreter
+        Prolog.Parser
+
+executable prolog
+    import: prolog-common
+    main-is: src/Main.hs
+    build-depends: prolog
+
+test-suite prolog-tests
+    import: prolog-common
+    type: exitcode-stdio-1.0
+    hs-source-dirs: test
+    main-is: Main.hs
+    other-modules:
+        Prolog.ParserSpec
+        Prolog.InterpreterSpec
+    build-depends:
+        prolog,
+        hspec

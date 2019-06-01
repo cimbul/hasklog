@@ -1,17 +1,3 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Parser
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 module Prolog.Parser (
   sentence,
   clause,
@@ -30,14 +16,9 @@ import Text.Parsec hiding (Empty, State, parse, parseTest)
 import Control.Monad (guard, when)
 import Control.Monad.State
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
-import Data.List (intersperse)
+import Data.List (intercalate)
+import Data.Functor (($>))
 import Data.Functor.Identity
-import Data.Maybe
-import Data.Foldable (toList)
-import Data.Map (Map)
-import qualified Data.Map as M
-import Data.Sequence (Seq, (|>))
-import qualified Data.Sequence as S
 
 
 type PrologParser m = ParsecT String () (InterpreterT m)
@@ -46,6 +27,7 @@ type PrologParser m = ParsecT String () (InterpreterT m)
 consult :: (Monad m) => PrologParser m a -> SourceName -> String -> InterpreterT m (Either ParseError a)
 consult p = runParserT (many layout *> p <* eof) ()
 
+parseTest :: PrologParser Identity a -> String -> Either ParseError a
 parseTest p input = runIdentity $ parse p "" input
 
 parse :: (Monad m) => PrologParser m a -> SourceName -> String -> m (Either ParseError a)
@@ -105,7 +87,6 @@ list = emptyList
 
   where
 
-
     listContents = listTerm <$> argument <*> rest
 
     rest = nextItem
@@ -138,9 +119,6 @@ rawVariable = (:) <$> variableStart <*> many variableChar
   where
     variableStart = upper
     variableChar  = alphaNum <|> char '_' <?> "rest of variable"
-
-atom :: Monad m => PrologParser m String
-atom = lexeme rawAtom
 
 nonFunctorAtom :: Monad m => PrologParser m String
 nonFunctorAtom = lexeme (rawAtom <* notFollowedBy (symbol "("))
@@ -178,17 +156,22 @@ reservedSymbol = symbol ","
 
 parens   :: Monad m => PrologParser m a -> PrologParser m a
 parens   p = lexeme $ between (symbol "(") (symbol ")") p
+
 brackets :: Monad m => PrologParser m a -> PrologParser m a
 brackets p = lexeme $ between (symbol "[") (symbol "]") p
-quotes q p = lexeme $ between (char q)     (char q)     p
 
+quotes :: Monad m => Char -> PrologParser m a -> PrologParser m a
+quotes q p = lexeme $ between (char q) (char q) p
+
+symbol :: Monad m => String -> PrologParser m String
 symbol s = lexeme $ string s
+
 lexeme :: Monad m => PrologParser m a -> PrologParser m a
 lexeme p = p <* many layout
 
 layout :: Monad m => PrologParser m ()
-layout = space   *> return ()
-     <|> comment *> return ()
+layout = space $> ()
+     <|> comment $> ()
 
 comment :: Monad m => PrologParser m String
 comment = char '%' *> many commentChar <?> "comment"
@@ -203,13 +186,14 @@ operation maxPrec = toTerm <$> operatorTree maxPrec Empty
 
   where
 
-    toTerm (Node (Operand t)      _     _    ) = t
-    toTerm (Node (Operator a def) ltree rtree) =
+    toTerm Empty                             = undefined
+    toTerm (Node (Operand t)    _     _    ) = t
+    toTerm (Node (Operator a _) ltree rtree) =
       case (ltree, rtree) of
-        (Node _ _ _, Node _ _ _) -> toCompound a [ltree, rtree]
-        (Node _ _ _, Empty     ) -> toCompound a [ltree]
-        (Empty     , Node _ _ _) -> toCompound a [rtree]
-        (Empty     , Empty     ) -> Atom a
+        (Node {}, Node {}) -> toCompound a [ltree, rtree]
+        (Node {}, Empty  ) -> toCompound a [ltree]
+        (Empty  , Node {}) -> toCompound a [rtree]
+        (Empty  , Empty  ) -> Atom a
 
     toCompound a subtrees = CompoundTerm a (map toTerm subtrees)
 
@@ -276,14 +260,16 @@ instance Syntax Term where
 
   concrete (CompoundTerm a subterms) = quoteAtom a ++ "(" ++ concreteSubterms ++ ")"
     where
-      concreteSubterms = concat (intersperse ", " (map concrete subterms))
+      concreteSubterms = intercalate ", " (map concrete subterms)
 
 
+quoteAtom :: String -> String
 quoteAtom a =
   if needsQuotes a
     then "'" ++ a ++ "'"
     else a
 
+needsQuotes :: String -> Bool
 needsQuotes a =
   case parseTest (unquotedAtom <|> symbolicAtom) a of
     Left  _ -> True
@@ -299,6 +285,7 @@ instance Syntax Operand where
   concrete (Operand  t)   = concrete t
   concrete (Operator a _) = concrete (Atom a)
 
+describeFixity :: Fixity -> String
 describeFixity Infix   = "infix"
 describeFixity Prefix  = "prefix"
 describeFixity Postfix = "postfix"
@@ -312,5 +299,5 @@ instance Syntax HornClause where
 
   concrete (DefiniteClause head body) = concrete head ++ " :- " ++ concreteBody
     where
-      concreteBody = concat (intersperse ", " (map concrete body))
-  concrete (GoalClause goals) = concat (intersperse ", " (map concrete goals))
+      concreteBody = intercalate ", " (map concrete body)
+  concrete (GoalClause goals) = intercalate ", " (map concrete goals)

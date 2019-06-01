@@ -1,21 +1,8 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Interpreter
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
-
 module Prolog.Interpreter (
   interpret,
   program,
 
+  Unifier,
   resolve,
   unify,
 ) where
@@ -25,26 +12,25 @@ import Prolog.Data
 import Prolog.Parser
 import Prolog.Compiler
 
-import Control.Monad.List
 import Control.Monad.State
 import Control.Monad (foldM)
-import Control.Applicative ((<$>), (<*>))
-import Data.Maybe (mapMaybe, catMaybes)
+import Control.Applicative ((<$>))
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Foldable (toList)
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Q
 import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Set (Set)
 import qualified Data.Set as S
+import List.Transformer (ListT, Step(..), runListT, next, empty, select)
 import Text.Parsec hiding (State)
 
 
 type Unifier = Map Identifier Term
 
 
-type Predicate m = [Term] -> InterpreterT m [([Term], Unifier)]
+type Predicate m = [Term] -> ListT (InterpreterT m) ([Term], Unifier)
 
+interpret :: Monad m => InterpreterT m a -> m a
 interpret p = evalStateT p initialState
 
 
@@ -75,30 +61,29 @@ builtins = M.fromList [
 --   program. Fail if any solutions are found; otherwise succeed.
 bnot :: (MonadIO m, Functor m) => Predicate m
 bnot [goal] =
-  do unifiers <- resolve (GoalClause [goal])
+  do unifiers <- lift $ next $ resolve (GoalClause [goal])
      case unifiers of
-       u:us -> bfail []
-       []   -> btrue []
+       Cons _ _ -> bfail []
+       Nil      -> btrue []
+bnot _ = bfail []
 
 -- | Cause unfication to fail immediately.
 bfail :: (MonadIO m) => Predicate m
-bfail [] = return []
+bfail _ = empty
 
 -- | Succeed without unifying anything or trigerring any further goals.
 --   Strictly speaking, this doesn't have to be a builtin (it could just be
 --   predefined as a fact), but having it as a function helps to write some
 --   other builtins (ones that normally succeed, for instance.)
 btrue :: (MonadIO m) => Predicate m
-btrue [] = return [([], M.empty)]
+btrue _ = return ([], M.empty)
 
 -- | Add a user-defined operator to the parser's operator table.
 boperator :: (MonadIO m, Functor m) => Predicate m
 boperator [Number prec, Atom opType, Atom name] =
   do updateOpTable $ insertOperator name (opDef opType prec)
      btrue []
-
   where
-
     -- | Extract the fixity and associativity of an operator from a Prolog
     --   "operator type" atom ("fx", "xfy", etc.).
     opDef :: Identifier -> Integer -> OpDefinition
@@ -110,15 +95,17 @@ boperator [Number prec, Atom opType, Atom name] =
     opDef "xf"  = OpDefinition Postfix NonA
     opDef "yf"  = OpDefinition Postfix LeftA
     opDef _     = undefined
+boperator _ = bfail []
 
 bconsult :: (MonadIO m, Functor m) => Predicate m
 bconsult [Atom filename] =
   do let filename' = filename ++ ".pl"
      contents <- liftIO $ readFile filename'
-     result <- consult program filename' contents
+     result <- lift $ consult program filename' contents
      case result of
        Left _  -> bfail []  -- TODO: Report error
        Right _ -> btrue []
+bconsult _ = bfail []
 
 bcompile :: (MonadIO m, Functor m) => Predicate m
 bcompile [Atom filename] =
@@ -126,7 +113,8 @@ bcompile [Atom filename] =
      let compiled = compileListing prog
      let filename' = filename ++ ".wam"
      liftIO $ writeFile filename' (concrete compiled)
-     btrue[]
+     btrue []
+bcompile _ = bfail []
 
 
 
@@ -144,8 +132,7 @@ rule =
      case c of
        -- Execute goal clauses and return the rest of the program
        GoalClause _ ->
-         do prog <- gets listing
-            lift $ resolve c
+         do lift $ runListT $ resolve c
             return Nothing
        -- Add definite clauses to the listing and return the clause followed by the
        -- rest of the program
@@ -162,22 +149,24 @@ rule =
 
 -- | Resolve the goal clause using the clauses in program. Return a list of all
 --   possible unifiers.
-resolve :: (MonadIO m, Functor m) => HornClause -> InterpreterT m [Unifier]
+resolve :: (MonadIO m, Functor m) => HornClause -> ListT (InterpreterT m) Unifier
 resolve (DefiniteClause _ _) = undefined
-resolve (GoalClause goals)   = runListT $ resolve' goalVars 0 goals M.empty
+resolve (GoalClause goals)   = resolve' goalVars 0 goals M.empty
 
   where
 
     resolve' :: (MonadIO m, Functor m) => Set Identifier -> Int -> [Term] -> Unifier -> ListT (InterpreterT m) Unifier
-    resolve' roots prefix []        unifier = return unifier
+    resolve' _     _      []        unifier = return unifier
     resolve' roots prefix (g:goals) unifier =
-      do (body, unifier') <- ListT $ predicate prefix g
+      do (body, unifier') <- predicate prefix g
          let goals'    = map (substituteAll unifier') (body ++ goals)
          let unifier'' = pruneUnifier roots (M.union unifier unifier')
          resolve' roots (prefix + 1) goals' unifier''
 
     goalVars = S.unions $ map variables goals
 
+unifyClauses :: Int -> Term -> HornClause -> Maybe ([Term], Unifier)
+unifyClauses _      _    (GoalClause _)             = Nothing
 unifyClauses prefix goal (DefiniteClause head body) =
   do let head' = renameVars prefix head
      let body' = renameVars prefix `map` body
@@ -186,11 +175,14 @@ unifyClauses prefix goal (DefiniteClause head body) =
 
 -- | "Call" a predicate (possibly builtin) and return all possible (/unifier/,
 --   /body goal/) pairs.
-predicate :: (MonadIO m, Functor m) => Int -> Term -> InterpreterT m [([Term], Unifier)]
+predicate :: (MonadIO m, Functor m) => Int -> Term -> ListT (InterpreterT m) ([Term], Unifier)
 predicate prefix pred =
   case builtin pred of
     Just f  -> f (subterms pred)
-    Nothing -> mapMaybe (unifyClauses prefix pred) <$> gets (toList . listing)
+    Nothing -> do clauses <- gets (toList . listing)
+                  clause <- select clauses
+                  Just result <- return $ unifyClauses prefix pred clause
+                  return result
 
 
 -- | Anonymize all the variables in a term by mangling their names with an integer prefix.
@@ -206,7 +198,7 @@ pruneUnifier :: Set Identifier -> Unifier -> Unifier
 pruneUnifier roots unifier =
     M.map (substituteAll unifier) $ M.filterWithKey isRoot unifier
   where
-    isRoot var val = S.member var roots
+    isRoot var _ = S.member var roots
 
 
 -- | "Occurs check": Check whether a variable occurs in a compound term.
@@ -215,7 +207,7 @@ pruneUnifier roots unifier =
 occurs :: Term -> Term -> Bool
 occurs (Variable var) (Variable var')       = var == var'
 occurs (Variable var) (CompoundTerm _ args) = any (occurs (Variable var)) args
-occurs (Variable var) _                     = False
+occurs (Variable _  ) _                     = False
 occurs _              _                     = undefined
 
 
@@ -245,19 +237,19 @@ unify a b = unify' a b M.empty
                in Just (M.insert var b unifier')
 
     -- Flip the direction if b is a variable but a is not.
-    unify' a b@(Variable var) unifier =
+    unify' a b@(Variable _) unifier =
       unify' b a unifier
 
     -- Compound terms unify with each other iff their functors and arities are
     -- identical and their subterms unify *simultaneously.*
-    unify' a@(CompoundTerm f ts) b@(CompoundTerm f' ts') unifier
+    unify' (CompoundTerm f ts) (CompoundTerm f' ts') unifier
       | f /= f'                 = Nothing
       | length ts /= length ts' = Nothing
       | otherwise =
             foldM substituteAndUnify unifier (zip ts ts')
           where
             substituteAndUnify unifier termPair =
-              (uncurry unify') (substituteAll unifier <$> termPair) unifier
+              uncurry unify' (substituteAll unifier <$> termPair) unifier
 
     -- Other terms unify iff they are identical
     unify' a b unifier
@@ -270,27 +262,24 @@ unify a b = unify' a b M.empty
 substituteAll :: Unifier -> Term -> Term
 
 substituteAll unification v@(Variable var) =
-  case M.lookup var unification of
-    Just sub -> sub
-    Nothing  -> v
+  fromMaybe v (M.lookup var unification)
 
 substituteAll unification (CompoundTerm f ts) =
   CompoundTerm f (map (substituteAll unification) ts)
 
-substituteAll unification t = t
+substituteAll _ t = t
 
 
 -- | Substitute each occurance of the first term (a variable) by the second term
 --   in the subject (third) term.
 substitute :: Term -> Term -> Term -> Term
 
-substitute v@(Variable var) replacement orig@(Variable var')
+substitute (Variable var) replacement orig@(Variable var')
   | var == var' = replacement
   | otherwise   = orig
 
-substitute v@(Variable var) replacement orig@(CompoundTerm f params) =
+substitute v@(Variable _) replacement (CompoundTerm f params) =
   CompoundTerm f (map (substitute v replacement) params)
 
-substitute v@(Variable var) _ orig = orig
-substitute _                _ _    = undefined
-
+substitute (Variable _) _ orig = orig
+substitute _            _ _    = undefined

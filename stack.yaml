@@ -1,0 +1,5 @@
+resolver: lts-13.0
+packages:
+  - .
+extra-deps:
+  - list-transformer-1.0.4

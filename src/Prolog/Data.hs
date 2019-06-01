@@ -1,16 +1,4 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Data
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
+{-# LANGUAGE FlexibleContexts #-}
 
 module Prolog.Data (
   Identifier,
@@ -66,13 +54,16 @@ data Term = Atom Identifier
           | CompoundTerm Identifier [Term]
           deriving (Eq, Ord, Show)
 
+subterms :: Term -> [Term]
 subterms (CompoundTerm _ ts) = ts
 subterms _                   = undefined
 
+functor :: Term -> Identifier
 functor (CompoundTerm a _) = a
 functor (Atom a)           = a
 functor _                  = undefined
 
+arity :: Term -> Int
 arity (CompoundTerm _ ts) = length ts
 arity _                   = 0
 
@@ -131,12 +122,16 @@ initialOpTable = M.fromList [
     (("not", Prefix),  OpDefinition Prefix  NonA   900)
   ]
 
+initialListing :: Listing
 initialListing = Q.empty
 
+updateOpTable :: MonadState InterpreterState m => (OpTable -> OpTable) -> m ()
 updateOpTable f = modify (\s -> s { opTable = f (opTable s) })
 
+updateListing :: MonadState InterpreterState m => (Listing -> Listing) -> m ()
 updateListing f = modify (\s -> s { listing = f (listing s) })
 
+appendListing :: MonadState InterpreterState m => HornClause -> m ()
 appendListing t = updateListing (|> t)
 
 
@@ -194,6 +189,8 @@ rbp (Operator _ def) = rbp' def
     rbp' (OpDefinition _       _      prec) = prec
 
 
-findOperator fix a table = Operator a <$> (M.lookup (a, fix) table)
+findOperator :: Fixity -> Identifier -> OpTable -> Maybe Operand
+findOperator fix a table = Operator a <$> M.lookup (a, fix) table
 
+insertOperator :: Identifier -> OpDefinition -> OpTable -> OpTable
 insertOperator a def = M.insert (a, fixity def) def

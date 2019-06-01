@@ -1,16 +1,4 @@
------------------------------------------------------------------------------
---
--- Module      :  Prolog.Compiler
--- Copyright   :
--- License     :  AllRightsReserved
---
--- Maintainer  :
--- Stability   :
--- Portability :
---
--- |
---
------------------------------------------------------------------------------
+{-# LANGUAGE FlexibleContexts #-}
 
 module Prolog.Compiler (
   compileListing
@@ -23,23 +11,37 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Writer hiding (Functor)
 import Control.Monad.State hiding (Functor)
 import Data.Foldable (toList)
-import Data.List (intersperse)
+import Data.Functor.Identity (Identity)
+import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as M
+import Data.Maybe
 import Data.Sequence (Seq, ViewL(..), (><))
 import qualified Data.Sequence as Q
 import Data.Set (Set)
 import qualified Data.Set as S
 
 
+data SimpleTerm = SVariable Identifier
+                | SCompoundTerm Identifier [SimpleTerm]
+                deriving (Eq, Ord, Show)
+
+data SimpleClause = SDefiniteClause SimpleTerm [SimpleTerm]
+
+
+runCompiler :: Writer (Seq WAM) a -> [WAM]
 runCompiler = toList . execWriter
 
 
-simplify (DefiniteClause head body) = DefiniteClause (simplifyAtoms head) (map simplifyAtoms body)
+simplify :: HornClause -> Maybe SimpleClause
+simplify (DefiniteClause head body) = Just (SDefiniteClause (simplifyAtoms head) (map simplifyAtoms body))
+simplify (GoalClause _)             = Nothing
 
-simplifyAtoms (Atom a)            = CompoundTerm a []
-simplifyAtoms (CompoundTerm f ts) = CompoundTerm f (map simplifyAtoms ts)
-simplifyAtoms t                   = t
+simplifyAtoms :: Term -> SimpleTerm
+simplifyAtoms (Atom a)            = SCompoundTerm a []
+simplifyAtoms (CompoundTerm f ts) = SCompoundTerm f (map simplifyAtoms ts)
+simplifyAtoms (Number a)          = SCompoundTerm (show a) []
+simplifyAtoms (Variable v)        = SVariable v
 
 
 compileListing :: [HornClause] -> Program
@@ -47,25 +49,28 @@ compileListing listing = Program (map (uncurry compilePredicate) (M.toList predi
 
   where
 
-    listing' = map simplify listing
+    listing' = mapMaybe simplify listing
 
-    predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty $ listing'
+    predicates = foldr (\clause -> M.insertWith (++) (ftor clause) [clause]) M.empty listing'
 
-    ftor (DefiniteClause head body) = Functor (functor head) (arity head)
+    ftor (SDefiniteClause (SCompoundTerm f ts) _) = Functor f (length ts)
+    ftor _ = undefined
 
 
 -- | Compile a predicate into a sequence of WAM instructions.
-compilePredicate :: Functor -> [HornClause] -> Predicate
+compilePredicate :: Functor -> [SimpleClause] -> Predicate
 compilePredicate f clauses = Predicate f (compileRules clauses)
 
-compileRules :: [HornClause] -> [Rule]
+compileRules :: [SimpleClause] -> [Rule]
+compileRules []           = []
 compileRules [singleton]  = [compileRule 0 (compileClause singleton)]
 compileRules (first:rest) =
     zipWith compileRule [0..] $ compileFirst first : compileRest 1 rest
 
   where
 
-    compileRest n [last]      = [compileLast n last]
+    compileRest _ []          = undefined -- impossible
+    compileRest _ [last]      = [compileLast last]
     compileRest n (next:rest) = compileMiddle n next : compileRest (n + 1) rest
 
     compileFirst clause =
@@ -74,26 +79,28 @@ compileRules (first:rest) =
     compileMiddle n clause =
       do emit (RetryMeElse (Label (n + 1)))
          compileClause clause
-    compileLast n clause =
-      do emit (TrustMe)
+    compileLast clause =
+      do emit TrustMe
          compileClause clause
 
+compileRule :: Int -> Writer (Seq WAM) a -> Rule
 compileRule n instructions = Rule (Label n) (runCompiler instructions)
 
 -- | Compile a rule into a sequence of WAM instructions.
-compileClause :: HornClause -> Writer (Seq WAM) ()
-compileClause (DefiniteClause head body) =
-  let perms = sharedVars (head:body)
+compileClause :: SimpleClause -> Writer (Seq WAM) ()
+compileClause (SDefiniteClause head body) =
+  evalStateT (compileClause' perms thead tbody) emptyRegisterSet
+    where
+      perms = sharedVars (head:body)
       (thead, tbody) = allocateClause perms head body
-   in evalStateT (compileClause' perms thead tbody) emptyRegisterSet
+      compileClause' perms head body =
+        do emit (Allocate (S.size perms))
+           compileArgs Get head
+           compileCall `mapM_` body
+           emit Deallocate
+           emit Proceed
 
-compileClause' perms head body =
-  do emit (Allocate (S.size perms))
-     compileArgs Get head
-     compileCall`mapM` body
-     emit (Deallocate)
-     emit (Proceed)
-
+emit :: MonadWriter (Seq a) m => a -> m ()
 emit inst = tell (Q.singleton inst)
 
 
@@ -101,11 +108,13 @@ data Mode = Get | Put deriving (Eq, Ord, Show)
 
 type RegisterSet = Set Register
 
+emptyRegisterSet :: RegisterSet
 emptyRegisterSet = S.empty
 
 -- | Compile the arguments of a toplevel term in a clause.
 compileArgs :: Mode -> TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileArgs mode (TStructure _ _ args) = zipWithM_ (compileArg mode) [1..] args
+compileArgs _    _                     = undefined -- TODO: clause heads should always be structures
 
 compileArg :: Mode -> Int -> TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileArg mode n (TVariable reg) =
@@ -119,6 +128,7 @@ compileArg mode n (TStructure f _ subterms) =
       flattened = flatten mode (TStructure f (Register n) subterms)
    in compileStruct mode `mapM_` flattened
 
+compileStruct :: Mode -> FlattenedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileStruct mode (FStructure f reg subtermRegs) =
   do modify (S.insert reg)
      let functor = Functor f (length subtermRegs)
@@ -127,8 +137,10 @@ compileStruct mode (FStructure f reg subtermRegs) =
        Put -> emit (PutStructure functor reg)
      compileUnify `mapM_` subtermRegs
 
+compileUnify :: Register -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileUnify reg = ifEncountered reg (UnifyValue reg) (UnifyVariable reg)
 
+ifEncountered :: Register -> WAM -> WAM -> StateT RegisterSet (Writer (Seq WAM)) ()
 ifEncountered reg t f =
   do encountered <- gets (S.member reg)
      if encountered
@@ -137,9 +149,11 @@ ifEncountered reg t f =
          do modify (S.insert reg)
             emit f
 
+compileCall :: TaggedTerm -> StateT RegisterSet (Writer (Seq WAM)) ()
 compileCall t@(TStructure f _ args) =
   do compileArgs Put t
      emit (Call (Functor f (length args)))
+compileCall _ = undefined
 
 
 type VariableMap = Map Identifier Int
@@ -148,7 +162,7 @@ type VariableSet = Set Identifier
 -- NOTE: This skips the optimization that variables that occur only in the head
 --   and the _first_ rule can be considered permanent. The special case didn't
 --   seem worth the extra complication.
-sharedVars :: [Term] -> VariableSet
+sharedVars :: [SimpleTerm] -> VariableSet
 sharedVars terms = mconcat sharedVars'
 
   where
@@ -158,27 +172,28 @@ sharedVars terms = mconcat sharedVars'
 
     -- The state here maps a variable to the first top-level term in the rule
     -- where it was encountered.
-    checkShared :: Int -> Term -> State VariableMap VariableSet
-    checkShared termNo (CompoundTerm f subterms) =
+    checkShared :: Int -> SimpleTerm -> State VariableMap VariableSet
+    checkShared termNo (SCompoundTerm _ subterms) =
       mconcat <$> mapM (checkShared termNo) subterms
-    checkShared termNo (Variable v) =
+    checkShared termNo (SVariable v) =
       do firstEncountered <- gets (M.findWithDefault termNo v)
          if firstEncountered /= termNo
            then return (S.singleton v)
            else
              do modify (M.insert v termNo)
-                return (S.empty)
+                return S.empty
 
 
 data FlattenedTerm = FStructure Identifier Register [Register]
 
+flatten :: Mode -> TaggedTerm -> [FlattenedTerm]
 flatten Get = flattenGet
 flatten Put = flattenPut
 
 flattenPut :: TaggedTerm -> [FlattenedTerm]
 flattenPut = reverse . flattenPut'
   where
-    flattenPut' (TVariable v)             = []
+    flattenPut' (TVariable _)             = []
     flattenPut' (TStructure f n subterms) =
       FStructure f n (map tag subterms) : concatMap flattenPut' subterms
 
@@ -191,7 +206,7 @@ flattenGet t = flattenGet' (Q.singleton t)
         EmptyL        -> []
         first :< rest ->
           case first of
-            TVariable n             -> flattenGet' rest
+            TVariable _             -> flattenGet' rest
             TStructure f n subterms ->
               FStructure f n (map tag subterms) : flattenGet' (rest >< Q.fromList subterms)
 
@@ -210,14 +225,20 @@ data Allocation = Allocation {
                   }
                 deriving (Eq, Ord, Show)
 
+emptyAllocation :: Allocation
 emptyAllocation = Allocation 1 M.empty
+
+reserveArgs :: Int -> Allocation
 reserveArgs n   = Allocation (n+1) M.empty
 
+allocateClause :: Traversable t => Set Identifier -> SimpleTerm -> t SimpleTerm -> (TaggedTerm, t TaggedTerm)
 allocateClause  perms head body = evalState (allocateClause' perms head body) emptyAllocation
-allocateClause' perms head body =
-   (,) <$> allocateTop perms head <*> mapM (allocateTop perms) body
+  where
+    allocateClause' perms head body =
+      (,) <$> allocateTop perms head <*> mapM (allocateTop perms) body
 
-allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
+allocateTop :: Set Identifier -> SimpleTerm -> StateT Allocation Identity TaggedTerm
+allocateTop perms (SCompoundTerm f args) = TStructure f register <$> args'
   where
     -- This register is a dummy value. The toplevel structure does not actually
     -- show up in data movement instructions (it only has to do with the predicate
@@ -226,20 +247,22 @@ allocateTop perms (CompoundTerm f args) = TStructure f register <$> args'
     register = Register (-1)
 
     args' = evalStateT args'' (reserveArgs (length args))
-    args'' = zipWithM (allocateArg perms) [1..] args
+    args'' = mapM (allocateArg perms) args
+allocateTop _ _ = undefined
 
 
-allocateArg perms n (Variable v)              = TVariable <$> allocateVar perms v
-allocateArg perms n (CompoundTerm f subterms) = TStructure f register <$> subterms'
+allocateArg :: VariableSet -> SimpleTerm -> StateT Allocation (State Allocation) TaggedTerm
+allocateArg perms (SVariable v)              = TVariable <$> allocateVar perms v
+allocateArg perms (SCompoundTerm f subterms) = TStructure f register <$> subterms'
   where
     register :: Register
     register = Register (-1)
     subterms' = mapM (allocate perms) subterms
 
 
-allocate :: VariableSet -> Term -> StateT Allocation (State Allocation) TaggedTerm
-allocate perms (Variable v)              = TVariable <$> allocateVar perms v
-allocate perms (CompoundTerm f subterms) = TStructure f <$> register <*> subterms'
+allocate :: VariableSet -> SimpleTerm -> StateT Allocation (State Allocation) TaggedTerm
+allocate perms (SVariable v)              = TVariable <$> allocateVar perms v
+allocate perms (SCompoundTerm f subterms) = TStructure f <$> register <*> subterms'
   where
     register = do Allocation next vars <- get
                   put (Allocation (next + 1) vars)
@@ -312,7 +335,7 @@ instance Syntax Program where
 
   describe = kind
 
-  concrete (Program predicates) = concat (intersperse "\n\n" (map concrete predicates))
+  concrete (Program predicates) = intercalate "\n\n" (map concrete predicates)
 
 
 instance Syntax Predicate where
@@ -352,15 +375,16 @@ instance Syntax WAM where
   concrete (UnifyVariable r) = delim ["unify_variable", concrete r]
   concrete (UnifyValue    r) = delim ["unify_value",    concrete r]
   concrete (Allocate n) = delim ["allocate", show n]
-  concrete (Deallocate) = "deallocate"
+  concrete Deallocate   = "deallocate"
   concrete (Call    f) = delim ["call",    concrete f]
   concrete (Execute f) = delim ["execute", concrete f]
-  concrete (Proceed)     = "proceed"
+  concrete Proceed     = "proceed"
   concrete (TryMeElse   l) = delim ["try_me_else",   concrete l]
   concrete (RetryMeElse l) = delim ["retry_me_else", concrete l]
-  concrete (TrustMe)       = "trust_me"
+  concrete TrustMe         = "trust_me"
 
-delim elems = concat $ intersperse "\t" elems
+delim :: [String] -> String
+delim = intercalate "\t"
 
 
 instance Syntax Label where
