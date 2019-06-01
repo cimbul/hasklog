@@ -13,6 +13,7 @@ install:
 
 script:
   - cabal new-test --enable-tests
+  - curl -sSL https://raw.github.com/ndmitchell/hlint/master/misc/run.sh | sh -s .
 
 cache:
   directories:
