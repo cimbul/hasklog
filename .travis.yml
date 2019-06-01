@@ -1,5 +1,3 @@
-# https://chshersh.github.io/posts/2019-02-25-haskell-travis
-
 language: haskell
 ghc: "8.6"
 cabal: "2.4"
@@ -7,14 +5,30 @@ cabal: "2.4"
 git:
   depth: 5
 
-install:
-  - cabal new-update
-  - cabal new-build --enable-tests --enable-benchmarks
+jobs:
+  include:
+  - name: Cabal
+    install:
+    - cabal new-update
+    - cabal new-build --enable-tests --enable-benchmarks
+    script:
+    - cabal new-test --enable-tests
 
-script:
-  - cabal new-test --enable-tests
-  - curl -sSL https://raw.github.com/ndmitchell/hlint/master/misc/run.sh | sh -s .
+  - name: Stack
+    install:
+    - curl -sSL https://get.haskellstack.org/ | sh
+    - stack --version
+    - stack build --system-ghc --test --bench --no-run-tests --no-run-benchmarks
+    script:
+    - stack test --system-ghc
+
+  - name: HLint
+    install: skip
+    script:
+    - curl -sSL https://raw.github.com/ndmitchell/hlint/master/misc/run.sh | sh -s .
 
 cache:
   directories:
   - "$HOME/.cabal/store"
+  - "$HOME/.stack"
+  - ".stack-work"
