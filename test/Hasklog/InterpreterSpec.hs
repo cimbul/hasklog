@@ -1,10 +1,10 @@
-module Prolog.InterpreterSpec (
+module Hasklog.InterpreterSpec (
   spec
 ) where
 
-import Prolog.Data (Term, Identifier)
-import Prolog.Interpreter
-import Prolog.Parser (parseTest, term)
+import Hasklog.Data (Term, Identifier)
+import Hasklog.Interpreter
+import Hasklog.Parser (parseTest, term)
 
 import qualified Data.Map as M
 import Test.Hspec

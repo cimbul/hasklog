@@ -1,4 +1,4 @@
-module Prolog.Parser (
+module Hasklog.Parser (
   sentence,
   clause,
   term,
@@ -10,7 +10,7 @@ module Prolog.Parser (
   PrologParser
 ) where
 
-import Prolog.Data
+import Hasklog.Data
 
 import Text.Parsec hiding (Empty, State, parse, parseTest)
 import Control.Monad (guard, when)

@@ -1,4 +1,4 @@
-module Prolog.Interpreter (
+module Hasklog.Interpreter (
   interpret,
   program,
 
@@ -8,9 +8,9 @@ module Prolog.Interpreter (
 ) where
 
 
-import Prolog.Data
-import Prolog.Parser
-import Prolog.Compiler
+import Hasklog.Data
+import Hasklog.Parser
+import Hasklog.Compiler
 
 import Control.Monad.State
 import Control.Monad (foldM)

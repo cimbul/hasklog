@@ -1,9 +1,9 @@
-module Prolog.ParserSpec (
+module Hasklog.ParserSpec (
   spec
 ) where
 
-import Prolog.Data hiding (describe)
-import Prolog.Parser
+import Hasklog.Data hiding (describe)
+import Hasklog.Parser
 
 import Data.Functor.Identity
 import Test.Hspec

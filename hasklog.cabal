@@ -1,12 +1,12 @@
 cabal-version: 2.2
-name: prolog
+name: hasklog
 version: 0.0.1
-synopsis: A toy Prolog interpreter written in Haskell
+synopsis: A toy Prolog interpreter/compiler written in Haskell
 author: Tim Yates
 license: NONE
 category: Language
 
-common prolog-common
+common hasklog-common
     default-language: Haskell2010
     ghc-options: -Wall -Wno-name-shadowing -Wno-orphans
     build-depends:
@@ -18,27 +18,27 @@ common prolog-common
         base
 
 library
-    import: prolog-common
+    import: hasklog-common
     hs-source-dirs: src
     exposed-modules:
-        Prolog.Compiler
-        Prolog.Data
-        Prolog.Interpreter
-        Prolog.Parser
+        Hasklog.Compiler
+        Hasklog.Data
+        Hasklog.Interpreter
+        Hasklog.Parser
 
-executable prolog
-    import: prolog-common
+executable hasklog
+    import: hasklog-common
     main-is: src/Main.hs
-    build-depends: prolog
+    build-depends: hasklog
 
-test-suite prolog-tests
-    import: prolog-common
+test-suite hasklog-tests
+    import: hasklog-common
     type: exitcode-stdio-1.0
     hs-source-dirs: test
     main-is: Main.hs
     other-modules:
-        Prolog.ParserSpec
-        Prolog.InterpreterSpec
+        Hasklog.ParserSpec
+        Hasklog.InterpreterSpec
     build-depends:
-        prolog,
+        hasklog,
         hspec

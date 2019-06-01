@@ -2,9 +2,9 @@ module Main (
   main,
 ) where
 
-import Prolog.Data
-import Prolog.Parser
-import Prolog.Interpreter
+import Hasklog.Data
+import Hasklog.Parser
+import Hasklog.Interpreter
 
 import Data.List (intercalate)
 import Control.Monad

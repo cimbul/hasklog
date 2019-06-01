@@ -1,10 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Prolog.Compiler (
+module Hasklog.Compiler (
   compileListing
 ) where
 
-import Prolog.Data
+import Hasklog.Data
 
 import Prelude hiding (Functor)
 import Control.Applicative ((<$>), (<*>))

@@ -3,10 +3,10 @@
 
 .. default-role:: pl
 
-About HProlog
+About Hasklog
 =============
 
-HProlog is a interpreter and compiler for a subset of Prolog. HProlog is
+Hasklog is a interpreter and compiler for a subset of Prolog. Hasklog is
 written in Haskell. Its features include:
 
 -  Full and correct support for resolution of logical goals, including
@@ -26,40 +26,40 @@ written in Haskell. Its features include:
    :depth: 2
    :backlinks: none
 
-Using HProlog
+Using Hasklog
 =============
 
 Setup
 -----
 
-HProlog is distributed as a `cabal package <http://www.haskell.org/cabal/>`_,
+Hasklog is distributed as a `cabal package <http://www.haskell.org/cabal/>`_,
 a commomly-used distribution system for Haskell programs. To build it, you
 will need to install the `Haskell Platform <http://hackage.haskell.org/platform/>`_.
-Once that is installed, you can compile HProlog by running the following
-commands inside the directory where you unpacked the HProlog distribution:
+Once that is installed, you can compile Hasklog by running the following
+commands inside the directory where you unpacked the Hasklog distribution:
 
 .. code:: console
 
    $ cabal configure
    $ cabal build
 
-After that, the HProlog binary will be located at
-``dist/build/prolog/prolog``. You can copy it into the base directory
+After that, the Hasklog binary will be located at
+``dist/build/hasklog/hasklog``. You can copy it into the base directory
 for convenience:
 
 .. code:: console
 
-   $ cp dist/build/prolog/prolog .
+   $ cp dist/build/hasklog/hasklog .
 
 Usage
 -----
 
-When you first start HProlog, the program presents an interactive prompt
+When you first start Hasklog, the program presents an interactive prompt
 where you can run queries and built-in commands:
 
 .. code:: console
 
-   $ ./prolog
+   $ ./hasklog
    ?-
 
 You can read in files using the *consult/1* command. Alternatively, you
@@ -67,7 +67,7 @@ can specify files to consult through the command line:
 
 .. code:: console
 
-   $ ./prolog file1 file2
+   $ ./hasklog file1 file2
    ?-
 
 When you are finished with your session, press *Control+D* to quit.
@@ -173,9 +173,9 @@ examples files.
 Tests
 -----
 
-Aside from the examples given above, HProlog also has unit tests for its
+Aside from the examples given above, Hasklog also has unit tests for its
 parser and unification engine. To run these tests (from within the main
-HProlog directory):
+Hasklog directory):
 
 .. code:: console
 
@@ -185,14 +185,14 @@ HProlog directory):
    Loading package integer-gmp ... linking ... done.
    Loading package base ... linking ... done.
    Loading package ffi-1.0 ... linking ... done.
-   Prelude> :load Prolog.Test
-   [1 of 5] Compiling Prolog.Data      ( src/Prolog/Data.hs, interpreted )
-   [2 of 5] Compiling Prolog.Parser    ( src/Prolog/Parser.hs, interpreted )
-   [3 of 5] Compiling Prolog.Compiler  ( src/Prolog/Compiler.hs, interpreted )
-   [4 of 5] Compiling Prolog.Interpreter ( src/Prolog/Interpreter.hs, interpreted )
-   [5 of 5] Compiling Prolog.Test      ( src/Prolog/Test.hs, interpreted )
-   Ok, modules loaded: Prolog.Test, Prolog.Data, Prolog.Parser, Prolog.Interpreter, Prolog.Compiler.
-   *Prolog.Test> runTestTT test_parser
+   Prelude> :load Hasklog.Test
+   [1 of 5] Compiling Hasklog.Data      ( src/Hasklog/Data.hs, interpreted )
+   [2 of 5] Compiling Hasklog.Parser    ( src/Hasklog/Parser.hs, interpreted )
+   [3 of 5] Compiling Hasklog.Compiler  ( src/Hasklog/Compiler.hs, interpreted )
+   [4 of 5] Compiling Hasklog.Interpreter ( src/Hasklog/Interpreter.hs, interpreted )
+   [5 of 5] Compiling Hasklog.Test      ( src/Hasklog/Test.hs, interpreted )
+   Ok, modules loaded: Hasklog.Test, Hasklog.Data, Hasklog.Parser, Hasklog.Interpreter, Hasklog.Compiler.
+   *Hasklog.Test> runTestTT test_parser
    Loading package transformers-0.2.2.0 ... linking ... done.
    Loading package bytestring-0.9.1.10 ... linking ... done.
    Loading package mtl-2.0.1.0 ... linking ... done.
@@ -202,10 +202,10 @@ HProlog directory):
    Loading package containers-0.4.0.0 ... linking ... done.
    Cases: 29  Tried: 29  Errors: 0  Failures: 0
    Counts {cases = 29, tried = 29, errors = 0, failures = 0}
-   *Prolog.Test> runTestTT test_unification
+   *Hasklog.Test> runTestTT test_unification
    Cases: 17  Tried: 17  Errors: 0  Failures: 0
    Counts {cases = 17, tried = 17, errors = 0, failures = 0}
-   *Prolog.Test> :quit
+   *Hasklog.Test> :quit
    Leaving GHCi.
 
 **Note**: As of this writing, there is a bug in operator parsing that
@@ -219,7 +219,7 @@ Technical Description
 Architecture
 ------------
 
-HProlog is roughly divided into a parser, interpreter, and compiler
+Hasklog is roughly divided into a parser, interpreter, and compiler
 units as shown in the `figure below <#fig:architecture>`__. The job of each of
 these units is described in the following sections.
 
@@ -236,7 +236,7 @@ these units is described in the following sections.
 Parser
 ------
 
-The parser is defined in ``src/Prolog/Parser.hs``. Its job is to
+The parser is defined in ``src/Hasklog/Parser.hs``. Its job is to
 transform the concrete representation of Prolog rules into a list of
 rule data structures. We can divide this task into two levels: parsing
 rules, and parsing terms.
@@ -302,18 +302,18 @@ where:
 Because compound terms contain other terms, the overall structure of
 parsed terms is a tree.
 
-A final issue is how to deal with operators. HProlog supports
+A final issue is how to deal with operators. Hasklog supports
 user-defined operators, which are simply functors of arity 1 or 2 that
 are written in prefix, postfix, or infix notation. For example, the
 expression `a :- b` is really a compound term with functor *:-/2*, and
-can also be written as `:-(a, b)`. HProlog uses a *top-down operator
+can also be written as `:-(a, b)`. Hasklog uses a *top-down operator
 precedence parser* to parse operations, which are then transformed into
 their term representation.
 
 Interpreter
 -----------
 
-The interpreter is defined in ``src/Prolog/Interpreter.hs``. Its job is
+The interpreter is defined in ``src/Hasklog/Interpreter.hs``. Its job is
 to find logical solutions to queries using rules defined in a program.
 For example, consider the program:
 
@@ -450,7 +450,7 @@ In summary, the steps of resolution are:
 
 #. If nothing is left, succeed. Otherwise, repeat from step 2.
 
-This is the basic algorithm used by HProlog, except that it also has to
+This is the basic algorithm used by Hasklog, except that it also has to
 deal with the question of which rule to unify with when there are
 several possible alternatives. It handles this by (lazily) taking all
 possible paths and concatenating all the results into a single list. The
@@ -460,12 +460,12 @@ algorithms, but in a much more straightforward manner.
 Compiler
 --------
 
-The compiler is defined in ``src/Prolog/Compiler.hs``. Its job is to
+The compiler is defined in ``src/Hasklog/Compiler.hs``. Its job is to
 take the rules in a program and translate them to a series of
 instructions for the Warren Abstract Machine (WAM). The details of the
 WAM are much too complicated to lay out here, but they can be found in
 *Warren’s Abstract Machine: A Tutorial Reconstruction* by Hasan
-Ait-Kaci (`here <http://wambook.sourceforge.net/wambook.pdf>`_). The version of the WAM targeted by HProlog is the one
+Ait-Kaci (`here <http://wambook.sourceforge.net/wambook.pdf>`_). The version of the WAM targeted by Hasklog is the one
 laid out in chapters 1-3 of that book. It does not include the many
 optimizations in chapter 4.
 
@@ -525,7 +525,7 @@ Some of the complications the compiler has to deal with include:
 Reference
 =========
 
-The following built-in commands are available for you to use in HProlog:
+The following built-in commands are available for you to use in Hasklog:
 
 `consult(+Filename)`
    Read the Prolog source file *“<Filename>.pl"* into the current

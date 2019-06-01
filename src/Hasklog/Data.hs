@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Prolog.Data (
+module Hasklog.Data (
   Identifier,
   Term(..),
   subterms,
