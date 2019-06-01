@@ -1,0 +1,490 @@
+add/3:
+	0:
+		try_me_else	1
+		allocate	0
+		get_variable	X4	X1
+		get_structure	zero/0	X2
+		get_value	X4	X3
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	3
+		get_variable	Y1	X1
+		get_structure	succ/1	X2
+		unify_variable	Y2
+		get_structure	succ/1	X3
+		unify_variable	Y3
+		put_value	Y1	X1
+		put_value	Y2	X2
+		put_value	Y3	X3
+		call	add/3
+		deallocate
+		proceed
+
+ancestor_descendent/2:
+	0:
+		try_me_else	1
+		allocate	2
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_value	Y1	X1
+		put_value	Y2	X2
+		call	parent_child/2
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	3
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_value	Y1	X1
+		put_variable	Y3	X2
+		call	parent_child/2
+		put_value	Y3	X1
+		put_value	Y2	X2
+		call	ancestor_descendent/2
+		deallocate
+		proceed
+
+append/3:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	[]/0	X1
+		get_variable	X4	X2
+		get_value	X4	X3
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	3
+		get_structure	./2	X1
+		unify_variable	X4
+		unify_variable	Y1
+		get_variable	Y2	X2
+		get_structure	./2	X3
+		unify_value	X4
+		unify_variable	Y3
+		put_value	Y1	X1
+		put_value	Y2	X2
+		put_value	Y3	X3
+		call	append/3
+		deallocate
+		proceed
+
+cmp/3:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	zero/0	X1
+		get_structure	zero/0	X2
+		get_structure	eq/0	X3
+		deallocate
+		proceed
+	1:
+		retry_me_else	2
+		allocate	0
+		get_structure	zero/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X4
+		get_structure	lt/0	X3
+		deallocate
+		proceed
+	2:
+		retry_me_else	3
+		allocate	0
+		get_structure	succ/1	X1
+		unify_variable	X4
+		get_structure	zero/0	X2
+		get_structure	gt/0	X3
+		deallocate
+		proceed
+	3:
+		trust_me
+		allocate	3
+		get_structure	succ/1	X1
+		unify_variable	Y1
+		get_structure	succ/1	X2
+		unify_variable	Y2
+		get_variable	Y3	X3
+		put_value	Y1	X1
+		put_value	Y2	X2
+		put_value	Y3	X3
+		call	cmp/3
+		deallocate
+		proceed
+
+father_child/2:
+	0:
+		allocate	2
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_value	Y1	X1
+		call	male/1
+		put_value	Y1	X1
+		put_value	Y2	X2
+		call	parent_child/2
+		deallocate
+		proceed
+
+female/1:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	mary/0	X1
+		deallocate
+		proceed
+	1:
+		retry_me_else	2
+		allocate	0
+		get_structure	susan/0	X1
+		deallocate
+		proceed
+	2:
+		trust_me
+		allocate	0
+		get_structure	kim/0	X1
+		deallocate
+		proceed
+
+male/1:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	bill/0	X1
+		deallocate
+		proceed
+	1:
+		retry_me_else	2
+		allocate	0
+		get_structure	ted/0	X1
+		deallocate
+		proceed
+	2:
+		retry_me_else	3
+		allocate	0
+		get_structure	bob/0	X1
+		deallocate
+		proceed
+	3:
+		retry_me_else	4
+		allocate	0
+		get_structure	george/0	X1
+		deallocate
+		proceed
+	4:
+		trust_me
+		allocate	0
+		get_structure	dave/0	X1
+		deallocate
+		proceed
+
+member/2:
+	0:
+		try_me_else	1
+		allocate	0
+		get_variable	X3	X1
+		get_structure	./2	X2
+		unify_value	X3
+		unify_variable	X4
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	2
+		get_variable	Y1	X1
+		get_structure	./2	X2
+		unify_variable	X3
+		unify_variable	Y2
+		put_value	Y1	X1
+		put_value	Y2	X2
+		call	member/2
+		deallocate
+		proceed
+
+mother_child/2:
+	0:
+		allocate	2
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_value	Y1	X1
+		call	female/1
+		put_value	Y1	X1
+		put_value	Y2	X2
+		call	parent_child/2
+		deallocate
+		proceed
+
+mult/3:
+	0:
+		try_me_else	1
+		allocate	0
+		get_variable	X4	X1
+		get_structure	zero/0	X2
+		get_structure	zero/0	X3
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	4
+		get_variable	Y1	X1
+		get_structure	succ/1	X2
+		unify_variable	Y2
+		get_variable	Y3	X3
+		put_value	Y1	X1
+		put_value	Y2	X2
+		put_variable	Y4	X3
+		call	mult/3
+		put_value	Y1	X1
+		put_value	Y4	X2
+		put_value	Y3	X3
+		call	add/3
+		deallocate
+		proceed
+
+natural/1:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	zero/0	X1
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	1
+		get_structure	succ/1	X1
+		unify_variable	Y1
+		put_value	Y1	X1
+		call	natural/1
+		deallocate
+		proceed
+
+p/3:
+	0:
+		allocate	3
+		get_variable	Y1	X1
+		get_structure	h/2	X2
+		unify_variable	X4
+		unify_variable	X6
+		get_structure	f/1	X4
+		unify_variable	X5
+		get_variable	Y2	X3
+		put_structure	h/2	X1
+		unify_variable	Y3
+		unify_value	Y2
+		put_structure	f/1	X3
+		unify_value	Y1
+		put_structure	g/1	X2
+		unify_value	X3
+		call	q/2
+		put_value	X5	X1
+		put_value	Y3	X2
+		put_value	Y2	X3
+		put_value	X5	X4
+		call	r/4
+		deallocate
+		proceed
+
+parent_child/2:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	bill/0	X1
+		get_structure	ted/0	X2
+		deallocate
+		proceed
+	1:
+		retry_me_else	2
+		allocate	0
+		get_structure	bill/0	X1
+		get_structure	bob/0	X2
+		deallocate
+		proceed
+	2:
+		retry_me_else	3
+		allocate	0
+		get_structure	mary/0	X1
+		get_structure	ted/0	X2
+		deallocate
+		proceed
+	3:
+		retry_me_else	4
+		allocate	0
+		get_structure	mary/0	X1
+		get_structure	bob/0	X2
+		deallocate
+		proceed
+	4:
+		retry_me_else	5
+		allocate	0
+		get_structure	george/0	X1
+		get_structure	mary/0	X2
+		deallocate
+		proceed
+	5:
+		retry_me_else	6
+		allocate	0
+		get_structure	susan/0	X1
+		get_structure	mary/0	X2
+		deallocate
+		proceed
+	6:
+		retry_me_else	7
+		allocate	0
+		get_structure	dave/0	X1
+		get_structure	george/0	X2
+		deallocate
+		proceed
+	7:
+		trust_me
+		allocate	0
+		get_structure	kim/0	X1
+		get_structure	george/0	X2
+		deallocate
+		proceed
+
+possible/1:
+	0:
+		allocate	0
+		get_variable	X2	X1
+		deallocate
+		proceed
+
+reverse/2:
+	0:
+		allocate	2
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_value	Y1	X1
+		put_structure	[]/0	X2
+		put_value	Y2	X3
+		call	reverse/3
+		deallocate
+		proceed
+
+reverse/3:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	[]/0	X1
+		get_variable	X4	X2
+		get_value	X4	X3
+		deallocate
+		proceed
+	1:
+		trust_me
+		allocate	4
+		get_structure	./2	X1
+		unify_variable	Y1
+		unify_variable	Y2
+		get_variable	Y3	X2
+		get_variable	Y4	X3
+		put_value	Y2	X1
+		put_structure	./2	X2
+		unify_value	Y1
+		unify_value	Y3
+		put_value	Y4	X3
+		call	reverse/3
+		deallocate
+		proceed
+
+short/2:
+	0:
+		try_me_else	1
+		allocate	0
+		get_structure	one/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	zero/0	X3
+		deallocate
+		proceed
+	1:
+		retry_me_else	2
+		allocate	0
+		get_structure	two/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	succ/1	X3
+		unify_variable	X4
+		get_structure	zero/0	X4
+		deallocate
+		proceed
+	2:
+		retry_me_else	3
+		allocate	0
+		get_structure	three/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	succ/1	X3
+		unify_variable	X4
+		get_structure	succ/1	X4
+		unify_variable	X5
+		get_structure	zero/0	X5
+		deallocate
+		proceed
+	3:
+		retry_me_else	4
+		allocate	0
+		get_structure	four/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	succ/1	X3
+		unify_variable	X4
+		get_structure	succ/1	X4
+		unify_variable	X5
+		get_structure	succ/1	X5
+		unify_variable	X6
+		get_structure	zero/0	X6
+		deallocate
+		proceed
+	4:
+		retry_me_else	5
+		allocate	0
+		get_structure	five/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	succ/1	X3
+		unify_variable	X4
+		get_structure	succ/1	X4
+		unify_variable	X5
+		get_structure	succ/1	X5
+		unify_variable	X6
+		get_structure	succ/1	X6
+		unify_variable	X7
+		get_structure	zero/0	X7
+		deallocate
+		proceed
+	5:
+		trust_me
+		allocate	0
+		get_structure	six/0	X1
+		get_structure	succ/1	X2
+		unify_variable	X3
+		get_structure	succ/1	X3
+		unify_variable	X4
+		get_structure	succ/1	X4
+		unify_variable	X5
+		get_structure	succ/1	X5
+		unify_variable	X6
+		get_structure	succ/1	X6
+		unify_variable	X7
+		get_structure	succ/1	X7
+		unify_variable	X8
+		get_structure	zero/0	X8
+		deallocate
+		proceed
+
+siblings/2:
+	0:
+		allocate	3
+		get_variable	Y1	X1
+		get_variable	Y2	X2
+		put_variable	Y3	X1
+		put_value	Y1	X2
+		call	parent_child/2
+		put_value	Y3	X1
+		put_value	Y2	X2
+		call	parent_child/2
+		deallocate
+		proceed
