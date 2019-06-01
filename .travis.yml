@@ -17,3 +17,7 @@ install:
 
 script:
   - cabal new-test --enable-tests
+
+after_script:
+  - cabal new-install hpc-coveralls
+  - hpc-coveralls
