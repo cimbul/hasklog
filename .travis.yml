@@ -1,13 +1,11 @@
 # https://chshersh.github.io/posts/2019-02-25-haskell-travis
 
 language: haskell
-ghc:
-  - "8.6"
+ghc: "8.6"
 cabal: "2.4"
 
-cache:
-  directories:
-  - "$HOME/.cabal/store"
+git:
+  depth: 5
 
 install:
   - cabal new-update
@@ -15,3 +13,7 @@ install:
 
 script:
   - cabal new-test --enable-tests
+
+cache:
+  directories:
+  - "$HOME/.cabal/store"
