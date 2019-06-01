@@ -32,24 +32,37 @@ Using Hasklog
 Setup
 -----
 
-Hasklog is distributed as a `cabal package <http://www.haskell.org/cabal/>`_,
-a commomly-used distribution system for Haskell programs. To build it, you
-will need to install the `Haskell Platform <http://hackage.haskell.org/platform/>`_.
-Once that is installed, you can compile Hasklog by running the following
-commands inside the directory where you unpacked the Hasklog distribution:
+Hasklog can be built with `Cabal <https://www.haskell.org/cabal/>`_ or
+`Stack <https://docs.haskellstack.org/en/stable/README/>`_. The instructions
+below assume you are using Stack.
+
+Run the following commands inside the directory where you unpacked Hasklog:
 
 .. code:: console
 
-   $ cabal configure
-   $ cabal build
+   $ stack build
 
-After that, the Hasklog binary will be located at
-``dist/build/hasklog/hasklog``. You can copy it into the base directory
-for convenience:
+Now you can run Hasklog from the Stack build directory:
 
 .. code:: console
 
-   $ cp dist/build/hasklog/hasklog .
+   $ stack run
+
+Or install the ``hasklog`` executable on your system:
+
+.. code:: console
+
+   $ stack install
+   $ hasklog  # Assuming you have ~/.local/bin in your PATH
+
+Tests
+-----
+
+To run the Hasklog unit tests:
+
+.. code:: console
+
+   $ stack test
 
 Usage
 -----
@@ -59,7 +72,7 @@ where you can run queries and built-in commands:
 
 .. code:: console
 
-   $ ./hasklog
+   $ hasklog
    ?-
 
 You can read in files using the *consult/1* command. Alternatively, you
@@ -67,7 +80,7 @@ can specify files to consult through the command line:
 
 .. code:: console
 
-   $ ./hasklog file1 file2
+   $ hasklog file1 file2
    ?-
 
 When you are finished with your session, press *Control+D* to quit.
@@ -169,49 +182,6 @@ At the end of this session, there should be a file named
 ``everything.wam`` in the ``examples/`` directory. It will contain WAM
 instructions in text format for all the predicates defined in all three
 examples files.
-
-Tests
------
-
-Aside from the examples given above, Hasklog also has unit tests for its
-parser and unification engine. To run these tests (from within the main
-Hasklog directory):
-
-.. code:: console
-
-   $ ghci -isrc
-   GHCi, version 7.0.3: http://www.haskell.org/ghc/  :? for help
-   Loading package ghc-prim ... linking ... done.
-   Loading package integer-gmp ... linking ... done.
-   Loading package base ... linking ... done.
-   Loading package ffi-1.0 ... linking ... done.
-   Prelude> :load Hasklog.Test
-   [1 of 5] Compiling Hasklog.Data      ( src/Hasklog/Data.hs, interpreted )
-   [2 of 5] Compiling Hasklog.Parser    ( src/Hasklog/Parser.hs, interpreted )
-   [3 of 5] Compiling Hasklog.Compiler  ( src/Hasklog/Compiler.hs, interpreted )
-   [4 of 5] Compiling Hasklog.Interpreter ( src/Hasklog/Interpreter.hs, interpreted )
-   [5 of 5] Compiling Hasklog.Test      ( src/Hasklog/Test.hs, interpreted )
-   Ok, modules loaded: Hasklog.Test, Hasklog.Data, Hasklog.Parser, Hasklog.Interpreter, Hasklog.Compiler.
-   *Hasklog.Test> runTestTT test_parser
-   Loading package transformers-0.2.2.0 ... linking ... done.
-   Loading package bytestring-0.9.1.10 ... linking ... done.
-   Loading package mtl-2.0.1.0 ... linking ... done.
-   Loading package parsec-3.1.1 ... linking ... done.
-   Loading package HUnit-1.2.2.3 ... linking ... done.
-   Loading package array-0.3.0.2 ... linking ... done.
-   Loading package containers-0.4.0.0 ... linking ... done.
-   Cases: 29  Tried: 29  Errors: 0  Failures: 0
-   Counts {cases = 29, tried = 29, errors = 0, failures = 0}
-   *Hasklog.Test> runTestTT test_unification
-   Cases: 17  Tried: 17  Errors: 0  Failures: 0
-   Counts {cases = 17, tried = 17, errors = 0, failures = 0}
-   *Hasklog.Test> :quit
-   Leaving GHCi.
-
-**Note**: As of this writing, there is a bug in operator parsing that
-will fail one of the parser tests. The only problem the bug causes is an
-inability to enforce non-associativity of operators. It should be fixed,
-but for now, it won’t cause any problems in normal usage of the program.
 
 Technical Description
 =====================
