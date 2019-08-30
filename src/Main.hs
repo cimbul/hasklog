@@ -18,9 +18,7 @@ import System.IO
 
 
 main :: IO ()
-main =
-  do args <- getArgs
-     interpret $ interpreterSession args
+main = interpret =<< interpreterSession <$> getArgs
 
 
 check :: Either ParseError a -> a
@@ -30,8 +28,7 @@ check = either (error . show) id
 readAndConsult :: String -> InterpreterT IO [HornClause]
 readAndConsult file =
   do source <- lift $ readFile file
-     rslt <- consult program file source
-     return $ check rslt
+     check <$> consult program file source
 
 interpreterSession :: [String] -> InterpreterT IO ()
 interpreterSession files =
@@ -45,8 +42,7 @@ prompt q = do putStr q
               getLine
 
 promptQuery :: IO String
-promptQuery = do input <- prompt "?- "
-                 return ("?- " ++ input)
+promptQuery = ("?- " ++) <$> prompt "?- "
 
 
 -- | Prompt the user for a query and run it, reporting results as long as the
@@ -54,23 +50,25 @@ promptQuery = do input <- prompt "?- "
 readEvalPrint :: InterpreterT IO ()
 readEvalPrint =
   do input <- lift promptQuery
-     query <- check <$> consult clause "(user input)" input
-     showResults =<< next (resolve query)
+     queryParseResult <- consult clause "(user input)" input
+     case queryParseResult of
+       Left error -> lift $ print error
+       Right query -> showResults =<< next (resolve query)
 
-  where
 
-    -- | Format and print the next available unifier and prompt whether to
-    --   report another.
-    showResults :: Step (InterpreterT IO) Unifier -> InterpreterT IO ()
-    showResults Nil = lift $ putStrLn "false."
-    showResults (Cons u us)
-      | M.null u = lift $ putStrLn "true."
-      | otherwise =
-          do response <- lift $ prompt (formatUnifier u ++ " ? ")
-             when (response == ";") $
-               do lift $ putStrLn ""
-                  showResults =<< next us
+-- | Format and print the next available unifier and prompt whether to
+--   report another.
+showResults :: Step (InterpreterT IO) Unifier -> InterpreterT IO ()
+showResults Nil = lift $ putStrLn "false."
+showResults (Cons unifier remaining)
+  | M.null unifier = lift $ putStrLn "true."
+  | otherwise = do
+      response <- lift $ prompt (formatUnifier unifier ++ " ? ")
+      when (response == ";") $ do
+        lift $ putStrLn ""
+        showResults =<< next remaining
+
+  where          
 
     formatUnifier u = intercalate "\n" (map formatBinding (M.toList u))
-      where
-        formatBinding (var,val) = var ++ " = " ++ concrete val
+    formatBinding (var, val) = var ++ " = " ++ concrete val
