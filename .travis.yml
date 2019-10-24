@@ -23,9 +23,11 @@ jobs:
     - stack test --system-ghc
 
   - name: HLint
-    install: skip
+    install:
+    - curl -sSL https://get.haskellstack.org/ | sh
+    - stack --version
+    - stack build --system-ghc hlint
     script:
-    - stack build hlint
     - stack exec hlint .
 
 cache:
