@@ -25,7 +25,8 @@ jobs:
   - name: HLint
     install: skip
     script:
-    - curl -sSL https://raw.github.com/ndmitchell/hlint/master/misc/run.sh | sh -s .
+    - stack build hlint
+    - stack exec hlint .
 
 cache:
   directories:
