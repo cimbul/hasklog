@@ -9,9 +9,9 @@ For usage instructions and technical information, see the `Manual <doc/Manual.rs
 
 .. |ci-badge| image:: https://travis-ci.org/cimbul/hasklog.svg
 .. _ci-badge: https://travis-ci.org/cimbul/hasklog
-.. |ghc-badge| image:: https://img.shields.io/badge/dynamic/yaml.svg?label=ghc&query=ghc&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcimbul%2Fhasklog%2Fmaster%2F.travis.yml
+.. |ghc-badge| image:: https://img.shields.io/badge/dynamic/yaml.svg?label=ghc&query=ghc&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcimbul%2Fhasklog%2Fmain%2F.travis.yml
 .. _ghc-badge: .travis.yml
-.. |stack-badge| image:: https://img.shields.io/badge/dynamic/yaml.svg?label=stack&query=resolver&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcimbul%2Fhasklog%2Fmaster%2Fstack.yaml
+.. |stack-badge| image:: https://img.shields.io/badge/dynamic/yaml.svg?label=stack&query=resolver&url=https%3A%2F%2Fraw.githubusercontent.com%2Fcimbul%2Fhasklog%2Fmain%2Fstack.yaml
 .. _stack-badge: stack.yaml
 .. |license-badge| image:: https://img.shields.io/github/license/cimbul/hasklog.svg
 .. _license-badge: LICENSE
